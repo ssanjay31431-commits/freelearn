@@ -149,7 +149,7 @@ const getOrderConfirmationTemplate = (orderData = {}) => {
       .map(
         (item) => `
         <tr style="border-bottom: 1px solid #e2e8f0;">
-          <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a;">${item.title || 'Service Item'}</td>
+          <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a;">${item.title || item.name || item.serviceName || item.serviceTitle || 'Service Item'}</td>
           <td style="padding: 12px 14px; font-size: 14px; color: #475569; text-align: center;">${item.quantity || 1}</td>
           <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a; text-align: right;">${formatCurrency(item.price || 0)}</td>
         </tr>`
@@ -158,7 +158,7 @@ const getOrderConfirmationTemplate = (orderData = {}) => {
   } else {
     itemsTableRows = `
       <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a;">${orderData.serviceName || 'Custom Digital Service'}</td>
+        <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a;">${orderData.serviceName || orderData.title || 'Custom Digital Service'}</td>
         <td style="padding: 12px 14px; font-size: 14px; color: #475569; text-align: center;">1</td>
         <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a; text-align: right;">${formatCurrency(orderData.totalAmount || 0)}</td>
       </tr>`;
