@@ -5,6 +5,8 @@ import OrderTimeline from '../components/orders/OrderTimeline';
 import OrderInvoiceModal from '../components/orders/OrderInvoiceModal';
 import { Search, Filter, Eye, FileText, UserPlus, Trash2, Plus, Sparkles } from 'lucide-react';
 
+import { getFirestoreAdminOrders, updateFirestoreOrderStatusAdmin } from '../firebase/adminDbService';
+
 export default function Orders() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
@@ -17,9 +19,23 @@ export default function Orders() {
   const fetchOrders = async () => {
     try {
       const res = await axiosClient.get('/admin/orders');
-      setOrders(res.data);
+      if (res.data && res.data.length > 0) {
+        setOrders(res.data);
+        setLoading(false);
+        return;
+      }
+      if (res.data) setOrders(res.data);
     } catch (err) {
-      console.error('Failed to load orders', err);
+      console.warn('Backend API /admin/orders fallback to Firestore:', err.message);
+    }
+
+    try {
+      const fsOrders = await getFirestoreAdminOrders();
+      if (fsOrders && fsOrders.length > 0) {
+        setOrders(fsOrders);
+      }
+    } catch (fsErr) {
+      console.error('Firestore Orders Error:', fsErr);
     } finally {
       setLoading(false);
     }
@@ -37,7 +53,9 @@ export default function Orders() {
       });
       await fetchOrders();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update order status');
+      console.warn('Backend API update status fallback to Firestore');
+      await updateFirestoreOrderStatusAdmin(orderId, newStatus);
+      await fetchOrders();
     } finally {
       setUpdatingId(null);
     }

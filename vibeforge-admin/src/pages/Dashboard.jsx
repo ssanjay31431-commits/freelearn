@@ -33,6 +33,8 @@ import {
   Bar
 } from 'recharts';
 
+import { getFirestoreAdminStats } from '../firebase/adminDbService';
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
@@ -50,9 +52,25 @@ export default function Dashboard() {
   const fetchStats = async () => {
     try {
       const res = await axiosClient.get('/admin/dashboard');
-      setStats(res.data);
+      if (res.data && (res.data.totalRevenue > 0 || res.data.recentOrders?.length > 0)) {
+        setStats(res.data);
+        setLoading(false);
+        return;
+      }
+      if (res.data) {
+        setStats(res.data);
+      }
     } catch (err) {
-      console.error('Failed to load dashboard metrics', err);
+      console.warn('Backend API /admin/dashboard fallback to Firestore:', err.message);
+    }
+
+    try {
+      const fsStats = await getFirestoreAdminStats();
+      if (fsStats && (fsStats.totalRevenue > 0 || fsStats.recentOrders?.length > 0 || !stats)) {
+        setStats(fsStats);
+      }
+    } catch (fsErr) {
+      console.error('Firestore Stats Error:', fsErr);
     } finally {
       setLoading(false);
     }
