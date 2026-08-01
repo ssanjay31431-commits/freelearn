@@ -267,11 +267,43 @@ const verifyRazorpayPayment = async (req, res) => {
   }
 };
 
+const sendConfirmationEmailHandler = async (req, res) => {
+  try {
+    const orderData = req.body;
+    if (!orderData || !orderData.customerEmail) {
+      return res.status(400).json({ success: false, message: 'Customer email is required.' });
+    }
+
+    console.log(`✉️ Direct Brevo SMTP email trigger requested for order #${orderData.orderId || 'N/A'} -> ${orderData.customerEmail}`);
+
+    const customerSent = await sendOrderConfirmation(orderData);
+    const adminSent = await sendAdminNotification({
+      subject: `🚀 New Order Received | Order #${orderData.orderId || ''}`,
+      customerName: orderData.customerName,
+      customerEmail: orderData.customerEmail,
+      customerPhone: orderData.customerPhone,
+      message: `Order #${orderData.orderId} placed. Total: ₹${orderData.totalAmount || 0}, Paid: ₹${orderData.amountPaid || 0}`,
+      details: orderData
+    });
+
+    res.json({
+      success: true,
+      customerSent,
+      adminSent,
+      message: customerSent ? 'Order confirmation email delivered successfully via Brevo SMTP.' : 'Email processed.'
+    });
+  } catch (error) {
+    console.error('Error in sendConfirmationEmailHandler:', error);
+    res.status(500).json({ success: false, message: 'Email dispatch error', error: error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   notifyAdminOrder,
   getOrderById,
   getMyOrders,
   verifyRazorpayPayment,
+  sendConfirmationEmailHandler,
   mockOrdersDB,
 };

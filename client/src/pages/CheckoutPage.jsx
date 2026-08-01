@@ -48,24 +48,32 @@ export const CheckoutPage = () => {
   };
 
   const sendCustomerConfirmationEmail = async (order) => {
-    try {
-      await fetch(`https://formsubmit.co/ajax/${order.customerEmail}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          _subject: `Order Confirmed! VibeForge Order #${order.orderId}`,
-          name: order.customerName,
-          orderId: order.orderId,
-          service: order.items?.[0]?.title || 'VibeForge Service',
-          totalAmount: `Rs.${order.totalAmount}`,
-          amountPaid: `Rs.${order.amountPaid}`,
-          amountDue: `Rs.${order.amountDue}`,
-          trackingLink: `https://vibeforge.netlify.app/track?id=${order.orderId}`,
-          _template: 'table',
-        }),
-      });
-    } catch (e) {
-      console.warn('Customer Email Trigger Notice:', e);
+    const apiUrls = [
+      import.meta.env.VITE_API_BASE_URL,
+      import.meta.env.VITE_API_URL,
+      'https://vibeforge-server.onrender.com/api',
+      'https://freelearn.onrender.com/api',
+      'http://localhost:5000/api'
+    ].filter(Boolean);
+
+    for (const baseUrl of apiUrls) {
+      try {
+        const cleanUrl = baseUrl.replace(/\/$/, '');
+        const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(order)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success) {
+            console.log('✅ Brevo SMTP customer email delivered via backend API endpoint:', cleanUrl);
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn(`[Client Email Trigger] Attempt to post send-confirmation to ${baseUrl} failed:`, e.message);
+      }
     }
   };
 
