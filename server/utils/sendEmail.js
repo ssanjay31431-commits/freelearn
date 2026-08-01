@@ -9,7 +9,7 @@ const getSenderAddress = () => {
   if (process.env.FROM_EMAIL && process.env.FROM_EMAIL.trim()) {
     return process.env.FROM_EMAIL.trim();
   }
-  return 'orders@vibeforge.com';
+  return 'vibeforgemrs@gmail.com';
 };
 
 const getAdminRecipients = () => {
