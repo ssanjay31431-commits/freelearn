@@ -134,13 +134,41 @@ const getBrandMeta = () => ({
 
 const getOrderConfirmationTemplate = (orderData = {}) => {
   const brand = getBrandMeta();
-  const trackingUrl = `https://vibeforge.netlify.app/track?id=${orderData.orderId || 'ORDER'}`;
-  const serviceName = orderData.items?.map((item) => item.title).join(', ') || orderData.serviceName || 'VibeForge Service';
-  const packageName = orderData.packageName || orderData.packageSelected || 'Premium Package';
+  const trackingUrl = `https://freelearn-seven.vercel.app/track?id=${orderData.orderId || 'ORDER'}`;
   const customerName = orderData.customerName || 'Valued Customer';
   const orderId = orderData.orderId || 'N/A';
   const currentStatus = orderData.statusTimeline || 'Order Received';
-  const estimatedDelivery = orderData.estimatedDeliveryDate || orderData.deliveryDate || 'To be confirmed';
+  const estimatedDelivery = orderData.expectedDeliveryDate
+    ? new Date(orderData.expectedDeliveryDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })
+    : orderData.estimatedDeliveryDate || orderData.deliveryDate || '3-5 Business Days';
+
+  // Format Items List
+  let itemsTableRows = '';
+  if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+    itemsTableRows = orderData.items
+      .map(
+        (item) => `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a;">${item.title || 'Service Item'}</td>
+          <td style="padding: 12px 14px; font-size: 14px; color: #475569; text-align: center;">${item.quantity || 1}</td>
+          <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a; text-align: right;">${formatCurrency(item.price || 0)}</td>
+        </tr>`
+      )
+      .join('');
+  } else {
+    itemsTableRows = `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a;">${orderData.serviceName || 'Custom Digital Service'}</td>
+        <td style="padding: 12px 14px; font-size: 14px; color: #475569; text-align: center;">1</td>
+        <td style="padding: 12px 14px; font-size: 14px; font-weight: 700; color: #0f172a; text-align: right;">${formatCurrency(orderData.totalAmount || 0)}</td>
+      </tr>`;
+  }
+
+  const paymentStatusText = orderData.paymentStatus === 'paid'
+    ? 'Paid in Full'
+    : orderData.paymentStatus === 'partially_paid'
+    ? 'Advance Paid'
+    : orderData.paymentStatus || 'Pending';
 
   return `
     <!DOCTYPE html>
@@ -168,8 +196,8 @@ const getOrderConfirmationTemplate = (orderData = {}) => {
                       </tr>
                       <tr>
                         <td style="padding-top:18px;">
-                          <div style="font-size:30px;font-weight:700;color:#ffffff;margin:0 0 6px;">Order confirmed 🎉</div>
-                          <div style="font-size:15px;line-height:1.6;color:rgba(255,255,255,0.92);margin:0;">Thank you for trusting VibeForge Digital Agency. Your project is now officially in motion.</div>
+                          <div style="font-size:30px;font-weight:700;color:#ffffff;margin:0 0 6px;">Order Confirmed 🎉</div>
+                          <div style="font-size:15px;line-height:1.6;color:rgba(255,255,255,0.92);margin:0;">Thank you for trusting VibeForge. Below are the details of your actual booking.</div>
                         </td>
                       </tr>
                     </table>
@@ -178,59 +206,52 @@ const getOrderConfirmationTemplate = (orderData = {}) => {
                 <tr>
                   <td style="padding:28px;">
                     <div style="font-size:20px;font-weight:700;color:${brand.dark};margin:0 0 8px;">Hello ${customerName},</div>
-                    <div style="font-size:15px;line-height:1.7;color:#475569;margin:0 0 20px;">We have received your order and created a polished experience for your next digital launch. Below is a quick snapshot of your booking.</div>
+                    <div style="font-size:15px;line-height:1.7;color:#475569;margin:0 0 20px;">We have received your order <strong>#${orderId}</strong>. Here is the complete summary of the services you ordered:</div>
 
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;margin-bottom:20px;">
+                      <thead>
+                        <tr style="background:#edf2f7;border-bottom:1px solid #cbd5e1;">
+                          <th style="padding:12px 14px;font-size:12px;text-transform:uppercase;color:#475569;text-align:left;">Ordered Item</th>
+                          <th style="padding:12px 14px;font-size:12px;text-transform:uppercase;color:#475569;text-align:center;">Qty</th>
+                          <th style="padding:12px 14px;font-size:12px;text-transform:uppercase;color:#475569;text-align:right;">Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${itemsTableRows}
+                      </tbody>
+                    </table>
+
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:18px 20px;margin-bottom:20px;">
                       <tr>
-                        <td style="padding:18px 20px;border-bottom:1px solid #e2e8f0;">
-                          <div style="font-size:12px;letter-spacing:1.3px;text-transform:uppercase;color:#64748b;font-weight:700;margin-bottom:8px;">Order Summary</div>
-                          <div style="font-size:22px;font-weight:700;color:${brand.dark};">#${orderId}</div>
-                        </td>
+                        <td width="50%" style="padding:6px 0;font-size:14px;color:#64748b;">Total Amount:</td>
+                        <td width="50%" style="padding:6px 0;font-size:16px;font-weight:700;color:#0f172a;text-align:right;">${formatCurrency(orderData.totalAmount || 0)}</td>
                       </tr>
                       <tr>
-                        <td style="padding:18px 20px;">
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td width="50%" style="padding:8px 0;vertical-align:top;">
-                                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:0.9px;margin-bottom:6px;">Service</div>
-                                <div style="font-size:15px;font-weight:700;color:${brand.dark};">${serviceName}</div>
-                              </td>
-                              <td width="50%" style="padding:8px 0;vertical-align:top;">
-                                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:0.9px;margin-bottom:6px;">Package</div>
-                                <div style="font-size:15px;font-weight:700;color:${brand.dark};">${packageName}</div>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td width="50%" style="padding:8px 0;vertical-align:top;">
-                                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:0.9px;margin-bottom:6px;">Price</div>
-                                <div style="font-size:15px;font-weight:700;color:${brand.dark};">${formatCurrency(orderData.totalAmount || 0)}</div>
-                              </td>
-                              <td width="50%" style="padding:8px 0;vertical-align:top;">
-                                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:0.9px;margin-bottom:6px;">Payment Status</div>
-                                <div style="font-size:15px;font-weight:700;color:${brand.dark};">${orderData.paymentStatus || 'Advance Paid'}</div>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td width="50%" style="padding:8px 0;vertical-align:top;">
-                                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:0.9px;margin-bottom:6px;">Advance Paid</div>
-                                <div style="font-size:15px;font-weight:700;color:${brand.dark};">${formatCurrency(orderData.amountPaid || 0)}</div>
-                              </td>
-                              <td width="50%" style="padding:8px 0;vertical-align:top;">
-                                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:0.9px;margin-bottom:6px;">Estimated Delivery</div>
-                                <div style="font-size:15px;font-weight:700;color:${brand.dark};">${estimatedDelivery}</div>
-                              </td>
-                            </tr>
-                          </table>
-                        </td>
+                        <td width="50%" style="padding:6px 0;font-size:14px;color:#64748b;">Amount Paid:</td>
+                        <td width="50%" style="padding:6px 0;font-size:16px;font-weight:700;color:#16a34a;text-align:right;">${formatCurrency(orderData.amountPaid || 0)}</td>
+                      </tr>
+                      ${orderData.amountDue > 0 ? `
+                      <tr>
+                        <td width="50%" style="padding:6px 0;font-size:14px;color:#64748b;">Balance Due:</td>
+                        <td width="50%" style="padding:6px 0;font-size:16px;font-weight:700;color:#dc2626;text-align:right;">${formatCurrency(orderData.amountDue || 0)}</td>
+                      </tr>
+                      ` : ''}
+                      <tr>
+                        <td width="50%" style="padding:6px 0;font-size:14px;color:#64748b;">Payment Status:</td>
+                        <td width="50%" style="padding:6px 0;font-size:14px;font-weight:700;color:#4f46e5;text-align:right;">${paymentStatusText}</td>
+                      </tr>
+                      <tr>
+                        <td width="50%" style="padding:6px 0;font-size:14px;color:#64748b;">Estimated Delivery:</td>
+                        <td width="50%" style="padding:6px 0;font-size:14px;font-weight:700;color:#0f172a;text-align:right;">${estimatedDelivery}</td>
                       </tr>
                     </table>
 
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;background:linear-gradient(135deg, rgba(79,70,229,0.10) 0%, rgba(7,182,212,0.10) 100%);border:1px solid #dbeafe;border-radius:16px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg, rgba(79,70,229,0.10) 0%, rgba(7,182,212,0.10) 100%);border:1px solid #dbeafe;border-radius:16px;margin-bottom:20px;">
                       <tr>
                         <td style="padding:18px 20px;">
-                          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#4f46e5;margin-bottom:8px;">Current Status</div>
-                          <div style="font-size:18px;font-weight:700;color:${brand.dark};margin-bottom:10px;">${currentStatus}</div>
-                          <div style="font-size:14px;line-height:1.6;color:#475569;">Our team will keep you updated at every milestone so you always know what is happening next.</div>
+                          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#4f46e5;margin-bottom:6px;">Current Order Status</div>
+                          <div style="font-size:18px;font-weight:700;color:${brand.dark};margin-bottom:6px;">${currentStatus}</div>
+                          <div style="font-size:14px;line-height:1.6;color:#475569;">Track your order progress live anytime on your tracking portal.</div>
                         </td>
                       </tr>
                     </table>
@@ -238,7 +259,7 @@ const getOrderConfirmationTemplate = (orderData = {}) => {
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;">
                       <tr>
                         <td align="center">
-                          <a href="${trackingUrl}" style="display:inline-block;background:linear-gradient(135deg, ${brand.primary} 0%, ${brand.secondary} 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:13px 24px;border-radius:999px;">Track Order</a>
+                          <a href="${trackingUrl}" style="display:inline-block;background:linear-gradient(135deg, ${brand.primary} 0%, ${brand.secondary} 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:13px 28px;border-radius:999px;">Track Order Live</a>
                         </td>
                       </tr>
                     </table>
