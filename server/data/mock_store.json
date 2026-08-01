@@ -1,0 +1,198 @@
+{
+  "orders": [
+    {
+      "orderId": "VF-881262",
+      "user": null,
+      "customerName": "S Sanjay",
+      "customerEmail": "sanjays28157@gmail.com",
+      "customerPhone": "7708447215",
+      "address": "",
+      "items": [
+        {
+          "serviceId": "srv_web_1",
+          "id": "srv_web_1",
+          "title": "Full-Stack MERN & React Web Application",
+          "price": 250,
+          "quantity": 1,
+          "deliverables": [
+            "Responsive Web Portal",
+            "React/Node Source Code",
+            "Free 1-Month Support"
+          ]
+        }
+      ],
+      "subtotal": 250,
+      "discount": 0,
+      "gst": 45,
+      "totalAmount": 295,
+      "paymentType": "full",
+      "amountPaid": 295,
+      "amountDue": 0,
+      "paymentMethod": "Razorpay / UPI",
+      "paymentStatus": "paid",
+      "statusTimeline": "Order Received",
+      "adminNotificationEmail": "vibeforge@gmail.com",
+      "adminNotificationPhone": "9943380320",
+      "createdAt": "2026-08-01T10:01:35.747Z"
+    },
+    {
+      "orderId": "VF-959067",
+      "user": null,
+      "customerName": "Lone Wolf",
+      "customerEmail": "ssanjay31431@gmail.com",
+      "customerPhone": "7708447215",
+      "address": "",
+      "items": [
+        {
+          "serviceId": "srv_poster_1",
+          "id": "srv_poster_1",
+          "title": "Symposium & Event Poster Design",
+          "price": 100,
+          "quantity": 1,
+          "deliverables": [
+            "Print-ready PDF Poster",
+            "HD PNG/JPG Renders",
+            "Canva/PSD Source File"
+          ]
+        }
+      ],
+      "subtotal": 100,
+      "discount": 0,
+      "gst": 18,
+      "totalAmount": 118,
+      "paymentType": "full",
+      "amountPaid": 118,
+      "amountDue": 0,
+      "paymentMethod": "Razorpay / UPI",
+      "paymentStatus": "paid",
+      "statusTimeline": "Order Received",
+      "adminNotificationEmail": "vibeforge@gmail.com",
+      "adminNotificationPhone": "9943380320",
+      "createdAt": "2026-08-01T09:51:17.758Z"
+    },
+    {
+      "orderId": "VF-662751",
+      "user": null,
+      "customerName": "Lone Wolf",
+      "customerEmail": "tsomu7036@gmail.com",
+      "customerPhone": "7708447215",
+      "address": "",
+      "items": [
+        {
+          "serviceId": "srv_poster_1",
+          "id": "srv_poster_1",
+          "title": "Symposium & Event Poster Graphic Design",
+          "price": 100,
+          "quantity": 1,
+          "deliverables": [
+            "Print-ready PDF Poster",
+            "HD PNG/JPG Renders",
+            "Canva/PSD Source File"
+          ]
+        }
+      ],
+      "subtotal": 100,
+      "discount": 0,
+      "gst": 18,
+      "totalAmount": 118,
+      "paymentType": "full",
+      "amountPaid": 118,
+      "amountDue": 0,
+      "paymentMethod": "Razorpay / UPI",
+      "paymentStatus": "paid",
+      "statusTimeline": "Order Received",
+      "adminNotificationEmail": "vibeforge@gmail.com",
+      "adminNotificationPhone": "9943380320",
+      "createdAt": "2026-08-01T09:42:19.983Z"
+    },
+    {
+      "orderId": "VF-522606",
+      "user": null,
+      "customerName": "Lone Wolf",
+      "customerEmail": "nnmm12256t@gmail.com",
+      "customerPhone": "7708447215",
+      "address": "",
+      "items": [
+        {
+          "serviceId": "srv_web_1",
+          "id": "srv_web_1",
+          "title": "Full-Stack MERN & React Web Application",
+          "price": 250,
+          "quantity": 2,
+          "deliverables": [
+            "Responsive Web Portal",
+            "React/Node Source Code",
+            "Free 1-Month Support"
+          ]
+        }
+      ],
+      "subtotal": 500,
+      "discount": 0,
+      "gst": 90,
+      "totalAmount": 590,
+      "paymentType": "full",
+      "amountPaid": 590,
+      "amountDue": 0,
+      "paymentMethod": "Razorpay / UPI",
+      "paymentStatus": "paid",
+      "statusTimeline": "Order Received",
+      "adminNotificationEmail": "vibeforge@gmail.com",
+      "adminNotificationPhone": "9943380320",
+      "createdAt": "2026-08-01T09:41:15.580Z"
+    },
+    {
+      "orderId": "VF-255977",
+      "user": null,
+      "customerName": "S Sanjay",
+      "customerEmail": "sanjays28157@gmail.com",
+      "customerPhone": "7708447215",
+      "address": "",
+      "items": [
+        {
+          "serviceId": "srv_web_1",
+          "id": "srv_web_1",
+          "title": "Full-Stack MERN & React Web Application",
+          "price": 250,
+          "quantity": 1,
+          "deliverables": [
+            "Responsive Web Portal",
+            "React/Node Source Code",
+            "Free 1-Month Support"
+          ]
+        }
+      ],
+      "subtotal": 250,
+      "discount": 0,
+      "gst": 45,
+      "totalAmount": 295,
+      "paymentType": "full",
+      "amountPaid": 295,
+      "amountDue": 0,
+      "paymentMethod": "Razorpay / UPI",
+      "paymentStatus": "paid",
+      "statusTimeline": "Order Received",
+      "adminNotificationEmail": "vibeforge@gmail.com",
+      "adminNotificationPhone": "9943380320",
+      "createdAt": "2026-08-01T06:12:50.091Z"
+    }
+  ],
+  "users": [
+    {
+      "_id": "usr_superadmin_7036",
+      "name": "VibeForge Super Admin",
+      "email": "tsomu7036@gmail.com",
+      "password": "Kavi@2005",
+      "phone": "+91 99433 80320",
+      "role": "super_admin",
+      "rewardPoints": 2340,
+      "status": "active"
+    }
+  ],
+  "offers": [],
+  "settings": {
+    "websiteName": "VibeForge Digital Agency",
+    "phone": "+91 99433 80320",
+    "email": "contact@vibeforge.com",
+    "whatsappNumber": "+91 99433 80320"
+  }
+}
