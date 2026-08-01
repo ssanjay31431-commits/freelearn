@@ -12,6 +12,8 @@ const { logAudit } = require('../utils/auditLogger');
 const { sendAdminLoginAlert } = require('../utils/securityNotifier');
 const { sendWhatsAppMessage } = require('../utils/whatsappNotifier');
 
+const { sendStatusUpdate } = require('../utils/sendEmail');
+
 // ==========================================
 // IN-MEMORY FALLBACK DATABASE (OFFLINE / STANDALONE MODE)
 // ==========================================
@@ -508,8 +510,8 @@ const updateOrderStatus = async (req, res) => {
       statusTimeline: targetOrder.statusTimeline
     }).catch(() => {});
 
-    // Send professional status email via Resend (non-blocking)
-    sendStatusUpdateEmail(targetOrder, targetOrder.statusTimeline || 'Updated').catch(() => {});
+    // Send professional status update email via Brevo SMTP
+    sendStatusUpdate(targetOrder, targetOrder.statusTimeline || 'Updated').catch(() => {});
 
     // Log Audit
     logAudit({
