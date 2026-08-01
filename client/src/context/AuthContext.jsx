@@ -247,8 +247,8 @@ export const AuthProvider = ({ children }) => {
         const fallbackUser = {
           _id: 'usr_guest_' + Date.now(),
           uid: 'usr_guest_' + Date.now(),
-          name: 'VibeForge Client',
-          email: 'client@vibeforge.com',
+          name: '',
+          email: '',
           phone: '',
           avatar: '',
           token: 'mock_token_' + Date.now(),
