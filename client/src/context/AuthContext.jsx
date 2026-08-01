@@ -240,6 +240,14 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
+      if (err.code === 'auth/unauthorized-domain') {
+        const currentDomain = window.location.hostname;
+        return {
+          success: false,
+          message: `Firebase Domain Unauthorized: "${currentDomain}" is not in Firebase Console's Authorized Domains list. Please add "${currentDomain}" in Firebase Console > Authentication > Settings > Authorized Domains.`,
+        };
+      }
+
       if (err.code === 'auth/operation-not-allowed') {
         return {
           success: false,
