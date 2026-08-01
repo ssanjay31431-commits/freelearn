@@ -47,6 +47,23 @@ export const CheckoutPage = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  // Pre-warm / Wake up Render backend server in advance when customer lands on Checkout Page
+  useEffect(() => {
+    const apiUrls = [
+      import.meta.env.VITE_API_BASE_URL,
+      import.meta.env.VITE_API_URL,
+      'https://vibeforge-server.onrender.com/api',
+      'https://freelearn.onrender.com/api'
+    ].filter(Boolean);
+
+    apiUrls.forEach((baseUrl) => {
+      try {
+        const cleanUrl = baseUrl.replace(/\/$/, '');
+        fetch(`${cleanUrl}/orders`, { method: 'GET' }).catch(() => {});
+      } catch (e) {}
+    });
+  }, []);
+
   const sendCustomerConfirmationEmail = async (order) => {
     const apiUrls = [
       import.meta.env.VITE_API_BASE_URL,
@@ -56,24 +73,36 @@ export const CheckoutPage = () => {
       'http://localhost:5000/api'
     ].filter(Boolean);
 
-    for (const baseUrl of apiUrls) {
-      try {
-        const cleanUrl = baseUrl.replace(/\/$/, '');
-        const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(order)
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.success) {
-            console.log('✅ Brevo SMTP customer email delivered via backend API endpoint:', cleanUrl);
-            break;
+    let delivered = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      for (const baseUrl of apiUrls) {
+        try {
+          const cleanUrl = baseUrl.replace(/\/$/, '');
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+          const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.success) {
+              console.log('✅ Brevo SMTP customer email delivered via backend API endpoint:', cleanUrl);
+              delivered = true;
+              break;
+            }
           }
+        } catch (e) {
+          console.warn(`[Client Email Trigger Attempt ${attempt}] Post to ${baseUrl} failed:`, e.message);
         }
-      } catch (e) {
-        console.warn(`[Client Email Trigger] Attempt to post send-confirmation to ${baseUrl} failed:`, e.message);
       }
+      if (delivered) break;
+      await new Promise((r) => setTimeout(r, 1500));
     }
   };
 
