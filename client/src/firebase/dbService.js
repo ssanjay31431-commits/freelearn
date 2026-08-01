@@ -107,29 +107,41 @@ export const createFirestoreOrder = async (orderData) => {
     timestamp: Date.now(),
   };
 
-  // 1. Post directly to Express API Backend to store in MongoDB Atlas
-  try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-    const token = localStorage.getItem('vf_token') || '';
-    const res = await fetch(`${apiBase}/orders`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify(fullOrder)
-    });
-    if (res.ok) {
-      const serverOrder = await res.json();
-      if (serverOrder && serverOrder.orderId) {
-        localOrders.unshift(serverOrder);
-        return serverOrder;
+  // 1. Post to Express API Backend to store in MongoDB Atlas & trigger Brevo SMTP emails
+  const apiUrls = [
+    import.meta.env.VITE_API_BASE_URL,
+    import.meta.env.VITE_API_URL,
+    'https://vibeforge-server.onrender.com/api',
+    'https://freelearn.onrender.com/api',
+    'http://localhost:5000/api'
+  ].filter(Boolean);
+
+  let serverOrder = null;
+  for (const baseUrl of apiUrls) {
+    try {
+      const cleanUrl = baseUrl.replace(/\/$/, '');
+      const token = localStorage.getItem('vf_token') || '';
+      const res = await fetch(`${cleanUrl}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(fullOrder)
+      });
+      if (res.ok) {
+        serverOrder = await res.json();
+        if (serverOrder && serverOrder.orderId) {
+          console.log('✅ Express Backend API created order & dispatched Brevo email:', serverOrder.orderId);
+          break;
+        }
       }
+    } catch (e) {
+      console.warn(`[API Order Dispatch] Attempt to post to ${baseUrl} failed:`, e.message);
     }
-  } catch (apiErr) {
-    console.warn('Express API createOrder Fallback:', apiErr.message);
   }
 
+  // 2. Save to Firestore for client UI sync
   try {
     const docRef = doc(db, 'orders', orderId);
     await setDoc(docRef, fullOrder);
@@ -137,8 +149,9 @@ export const createFirestoreOrder = async (orderData) => {
     console.warn('Firestore Order Write Fallback:', err.message);
   }
 
-  localOrders.unshift(fullOrder);
-  return fullOrder;
+  const finalOrder = serverOrder || fullOrder;
+  localOrders.unshift(finalOrder);
+  return finalOrder;
 };
 
 export const getUserFirestoreOrders = async (userId, userEmail) => {
