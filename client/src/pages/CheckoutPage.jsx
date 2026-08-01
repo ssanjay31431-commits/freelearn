@@ -111,8 +111,8 @@ export const CheckoutPage = () => {
       // 1. Write directly to Firebase Firestore
       const createdOrder = await createFirestoreOrder(orderPayload);
 
-      // 2. Send Automated Customer Email
-      sendCustomerConfirmationEmail(createdOrder);
+      // 2. Send Automated Customer Email via Brevo SMTP
+      await sendCustomerConfirmationEmail(createdOrder);
 
       clearCart();
       setLoading(false);
