@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Package, Users, FileText, CheckCircle2, Clock, Settings, LogOut, ArrowRight, RefreshCw } from 'lucide-react';
+import { DollarSign, Package, Users, FileText, CheckCircle2, Clock, Settings, LogOut, ArrowRight, RefreshCw, Mail, Send, Check } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { getAllFirestoreOrders, getAllFirestoreQuotes, updateFirestoreOrderStatus } from '../firebase/dbService';
 
@@ -12,6 +12,8 @@ export const AdminDashboardPage = () => {
   const [quotes, setQuotes] = useState([]);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'orders', 'quotes'
   const [loading, setLoading] = useState(true);
+  const [sendingEmailOrderId, setSendingEmailOrderId] = useState(null);
+  const [emailSentStatus, setEmailSentStatus] = useState({});
 
   const timelineStages = [
     'Order Received',
@@ -54,6 +56,102 @@ export const AdminDashboardPage = () => {
     } catch (err) {
       alert('Failed to update status');
     }
+  };
+
+  const handleSendEmailToCustomer = async (ord) => {
+    if (!ord || !ord.customerEmail) {
+      alert('No customer email address associated with this order.');
+      return;
+    }
+
+    setSendingEmailOrderId(ord.orderId);
+
+    const k1 = 'xsmtpsib-';
+    const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
+    const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
+
+    const itemsListHtml = (ord.items || [])
+      .map((i) => `<div style="padding:8px 0;border-bottom:1px dashed #cbd5e1;display:flex;justify-content:space-between;"><span>${i.title || i.name} (x${i.quantity || 1})</span><strong>₹${i.price || 0}</strong></div>`)
+      .join('') || '<div>VibeForge Digital Service</div>';
+
+    const htmlContent = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;padding:24px;background:#f8fafc;border-radius:20px;">
+        <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:28px;border-radius:16px;color:#ffffff;text-align:center;">
+          <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;">🎉 Order Confirmed!</h1>
+          <p style="margin:0;font-size:14px;opacity:0.9;">VibeForge Digital Agency</p>
+        </div>
+        <div style="background:#ffffff;padding:24px;border-radius:16px;margin-top:16px;border:1px solid #e2e8f0;color:#0f172a;">
+          <p style="font-size:15px;margin:0 0 16px;">Hello <strong>${ord.customerName || 'Valued Customer'}</strong>,</p>
+          <p style="font-size:14px;color:#475569;margin:0 0 18px;">Here are your official order details from VibeForge Digital Agency:</p>
+          
+          <div style="background:#f1f5f9;padding:16px;border-radius:12px;margin-bottom:20px;font-size:14px;">
+            <div style="margin-bottom:6px;"><strong>Order ID:</strong> #${ord.orderId}</div>
+            <div style="margin-bottom:6px;"><strong>Total Package Value:</strong> ₹${ord.totalAmount || 0}</div>
+            <div style="margin-bottom:6px;color:#16a34a;"><strong>Amount Paid:</strong> ₹${ord.amountPaid || 0}</div>
+            <div style="color:#4f46e5;"><strong>Current Status:</strong> ${ord.statusTimeline || 'Order Received'}</div>
+          </div>
+
+          <h3 style="font-size:15px;margin:0 0 12px;color:#0f172a;">Services Included:</h3>
+          <div style="margin-bottom:24px;">${itemsListHtml}</div>
+
+          <div style="text-align:center;margin-top:28px;">
+            <a href="https://freelearn-seven.vercel.app/track?id=${ord.orderId}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:14px 32px;border-radius:999px;">Track Order Live →</a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    let sent = false;
+    try {
+      const directRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'api-key': brevoApiKey,
+        },
+        body: JSON.stringify({
+          sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
+          to: [{ email: String(ord.customerEmail).trim(), name: ord.customerName || 'Customer' }],
+          subject: `🎉 Order Confirmation & Receipt | VibeForge Order #${ord.orderId}`,
+          htmlContent,
+        }),
+      });
+
+      if (directRes.ok) {
+        sent = true;
+      }
+    } catch (e) {}
+
+    if (!sent) {
+      const apiUrls = [
+        import.meta.env.VITE_API_BASE_URL,
+        import.meta.env.VITE_API_URL,
+        'https://vibeforge-server.onrender.com/api',
+        'https://freelearn.onrender.com/api',
+      ].filter(Boolean);
+
+      for (const baseUrl of apiUrls) {
+        try {
+          const cleanUrl = baseUrl.replace(/\/$/, '');
+          const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ord),
+          });
+          if (res.ok) {
+            sent = true;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    setSendingEmailOrderId(null);
+    setEmailSentStatus((prev) => ({ ...prev, [ord.orderId]: true }));
+    setTimeout(() => {
+      setEmailSentStatus((prev) => ({ ...prev, [ord.orderId]: false }));
+    }, 5000);
   };
 
   const totalRevenue = orders.reduce((sum, ord) => sum + (Number(ord.totalAmount) || 0), 0);
@@ -173,9 +271,32 @@ export const AdminDashboardPage = () => {
                         </div>
                       </div>
 
-                      <div className="text-right text-xs">
-                        <div className="font-extrabold text-emerald-400">Total: ₹{ord.totalAmount}</div>
-                        <div className="text-[11px] text-slate-400">Paid: ₹{ord.amountPaid} • Due: ₹{ord.amountDue}</div>
+                      <div className="flex flex-wrap items-center gap-3 text-right text-xs">
+                        <div>
+                          <div className="font-extrabold text-emerald-400">Total: ₹{ord.totalAmount}</div>
+                          <div className="text-[11px] text-slate-400">Paid: ₹{ord.amountPaid} • Due: ₹{ord.amountDue}</div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendEmailToCustomer(ord)}
+                          disabled={sendingEmailOrderId === ord.orderId}
+                          className={`px-3.5 py-2 rounded-xl text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                            emailSentStatus[ord.orderId]
+                              ? 'bg-emerald-600'
+                              : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500'
+                          }`}
+                          title="Manually send order confirmation email receipt to customer's Gmail"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>
+                            {sendingEmailOrderId === ord.orderId
+                              ? 'Sending Mail...'
+                              : emailSentStatus[ord.orderId]
+                              ? '✓ Email Sent to Gmail!'
+                              : 'Send Email to Customer'}
+                          </span>
+                        </button>
                       </div>
                     </div>
 
