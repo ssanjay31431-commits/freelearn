@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, CheckCircle2, Clock, Download, Package, MessageCircle, Send, XCircle, AlertTriangle, X } from 'lucide-react';
+import { Search, CheckCircle2, Clock, Download, Package, MessageCircle, Mail, AlertTriangle, X } from 'lucide-react';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 import { getFirestoreOrderById, cancelFirestoreOrder } from '../firebase/dbService';
-
+import axiosClient from '../api/axiosClient';
 import { io } from 'socket.io-client';
 
 export const OrderTrackingPage = () => {
@@ -12,6 +12,7 @@ export const OrderTrackingPage = () => {
   const isNewOrder = searchParams.get('newOrder') === 'true';
 
   const [orderId, setOrderId] = useState(queryId);
+  const [emailInput, setEmailInput] = useState('');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,21 +22,27 @@ export const OrderTrackingPage = () => {
     const socketUrl = import.meta.env.VITE_SOCKET_URL || 'https://vibeforge-hq68.onrender.com';
     const socket = io(socketUrl, { autoConnect: true, reconnection: true });
 
-    if (orderId) {
-      socket.emit('join_order_room', orderId);
+    const activeId = order?.orderId || orderId || queryId;
+    if (activeId) {
+      socket.emit('join_order_room', activeId);
     }
 
-    socket.on('order:status_updated', (updatedOrder) => {
+    const handleUpdate = (updatedOrder) => {
       console.log('⚡ Live Order Status Received on Customer Site:', updatedOrder);
-      if (updatedOrder && (updatedOrder.orderId === orderId || updatedOrder.orderId === queryId)) {
+      if (updatedOrder && (updatedOrder.orderId === activeId || updatedOrder.orderId === orderId)) {
         setOrder((prev) => (prev ? { ...prev, ...updatedOrder, statusTimeline: updatedOrder.statusTimeline || updatedOrder.orderStatus } : updatedOrder));
       }
-    });
+    };
+
+    socket.on('orderUpdated', handleUpdate);
+    socket.on('order:status_updated', handleUpdate);
 
     return () => {
+      socket.off('orderUpdated', handleUpdate);
+      socket.off('order:status_updated', handleUpdate);
       socket.disconnect();
     };
-  }, [orderId, queryId]);
+  }, [orderId, queryId, order?.orderId]);
 
   // Cancellation Modal
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -43,7 +50,7 @@ export const OrderTrackingPage = () => {
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
 
   const timelineStages = [
-    'Pending',
+    'Order Received',
     'Confirmed',
     'Planning',
     'Designing',
@@ -62,13 +69,13 @@ export const OrderTrackingPage = () => {
       "----------------------------------",
       `Dear *${ord?.customerName || 'Customer'}*,`,
       "",
-      `Your order *#${ord?.orderId}* is RECEIVED!`,
+      `Your order *#${ord?.orderId}* is RECORDED!`,
       "",
       `*Service:* ${ord?.items?.[0]?.title || 'VibeForge Service'}`,
-      `*Total Package Value:* Rs.${ord?.totalAmount || 0}`,
+      `*Total Value:* Rs.${ord?.totalAmount || 0}`,
       `*Amount Paid:* Rs.${ord?.amountPaid || 0}`,
-      `*Remaining Balance:* Rs.${ord?.amountDue || 0}`,
-      `*Status:* ${ord?.orderStatus || ord?.statusTimeline || 'Pending'}`,
+      `*Amount Due:* Rs.${ord?.amountDue || 0}`,
+      `*Status:* ${ord?.orderStatus || ord?.statusTimeline || 'Order Received'}`,
       "",
       `*Track Live Production:* https://freelearn-seven.vercel.app/track?id=${ord?.orderId}`,
       "----------------------------------",
@@ -80,21 +87,57 @@ export const OrderTrackingPage = () => {
 
   useEffect(() => {
     if (queryId) {
-      handleTrack(queryId);
+      handleTrack(queryId, '');
     }
   }, [queryId]);
 
-  const handleTrack = async (idToSearch = orderId) => {
-    if (!idToSearch) return;
+  const handleTrack = async (idToSearch = orderId, emailToSearch = emailInput) => {
+    const searchId = (idToSearch || orderId).trim();
+    if (!searchId) {
+      setError('Please enter a valid Order ID.');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
+    // Try Express Backend API first
     try {
-      const foundOrder = await getFirestoreOrderById(idToSearch.trim());
+      const res = await axiosClient.get(`/orders/track?orderId=${encodeURIComponent(searchId)}&email=${encodeURIComponent(emailToSearch.trim())}`);
+      if (res.data && res.data.success && res.data.order) {
+        setOrder(res.data.order);
+        setLoading(false);
+        return;
+      }
+    } catch (apiErr) {
+      if (apiErr.response?.status === 403) {
+        setError('Email address does not match this Order ID.');
+        setOrder(null);
+        setLoading(false);
+        return;
+      }
+      if (apiErr.response?.status === 404) {
+        // Fall through to Firestore
+      }
+    }
+
+    // Fallback to Firestore lookup
+    try {
+      const foundOrder = await getFirestoreOrderById(searchId);
       if (foundOrder) {
+        if (emailToSearch && emailToSearch.trim()) {
+          const cleanInputEmail = emailToSearch.trim().toLowerCase();
+          const orderEmail = (foundOrder.customerEmail || '').trim().toLowerCase();
+          if (orderEmail && orderEmail !== cleanInputEmail) {
+            setError('Email address does not match this Order ID.');
+            setOrder(null);
+            setLoading(false);
+            return;
+          }
+        }
         setOrder(foundOrder);
       } else {
-        setError('Order not found. Please verify your Order ID and try again.');
+        setError(`Invalid Order ID #${searchId}. No order found.`);
         setOrder(null);
       }
     } catch (err) {
@@ -128,8 +171,27 @@ export const OrderTrackingPage = () => {
   };
 
   const getStageIndex = (stage) => {
+    if (!stage) return 0;
+    if (stage === 'Pending') return 0;
     const idx = timelineStages.indexOf(stage);
     return idx === -1 ? 0 : idx;
+  };
+
+  const formatLastUpdated = (ord) => {
+    const rawDate = ord?.updatedAt || ord?.emailSentAt || ord?.createdAt;
+    if (!rawDate) return 'N/A';
+    try {
+      return new Date(rawDate).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch (e) {
+      return String(rawDate);
+    }
   };
 
   return (
@@ -201,30 +263,43 @@ export const OrderTrackingPage = () => {
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-md text-center space-y-4">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-extrabold uppercase">
             <Package className="w-4 h-4 text-indigo-600" />
-            <span>Live Order Status Tracking</span>
+            <span>Live Real-Time Order Status Tracking</span>
           </div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Track Your Project</h1>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Track Your Order Status</h1>
 
-          <form onSubmit={(e) => { e.preventDefault(); handleTrack(); }} className="max-w-md mx-auto flex gap-2">
-            <div className="relative flex-1">
+          <form onSubmit={(e) => { e.preventDefault(); handleTrack(); }} className="max-w-2xl mx-auto grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div className="sm:col-span-6 relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-4 top-3.5" />
               <input
                 type="text"
+                required
                 value={orderId}
                 onChange={(e) => setOrderId(e.target.value)}
-                placeholder="Enter Order ID (e.g. VF-839201)"
+                placeholder="Order ID (e.g. VF-881262)"
                 className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-slate-900 font-medium text-xs placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
               />
             </div>
+
+            <div className="sm:col-span-4 relative">
+              <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-3.5" />
+              <input
+                type="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="Email Address (Optional)"
+                className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-slate-900 font-medium text-xs placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
+              />
+            </div>
+
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50"
+              className="sm:col-span-2 px-4 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50"
             >
-              {loading ? 'Searching...' : 'Track Order'}
+              {loading ? 'Searching...' : 'Track'}
             </button>
           </form>
-          {error && <div className="text-xs text-rose-600 mt-3 text-center font-bold">{error}</div>}
+          {error && <div className="text-xs text-rose-600 mt-2 text-center font-extrabold">{error}</div>}
         </div>
 
         {/* Order Details Banner & Timeline */}
@@ -241,7 +316,7 @@ export const OrderTrackingPage = () => {
                   <div>
                     <h3 className="text-lg font-black text-emerald-950">Order #{order.orderId} Placed Successfully!</h3>
                     <p className="text-xs font-extrabold text-emerald-800">
-                      Your order has been recorded. Current Status: <span className="underline">{order.orderStatus || order.statusTimeline || 'Pending'}</span>. Confirmation email will be dispatched by VibeForge Admin once verified.
+                      Your order has been recorded in MongoDB. Status: <span className="underline">{order.orderStatus || order.statusTimeline || 'Order Received'}</span>. Email Status: <span className="underline">{order.emailStatus || 'NOT_SENT'}</span>.
                     </p>
                   </div>
                 </div>
@@ -268,58 +343,79 @@ export const OrderTrackingPage = () => {
               </div>
             )}
 
-            {/* Header info card */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-indigo-700 font-extrabold">Order ID: #{order.orderId}</span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                    (order.orderStatus || order.statusTimeline) === 'Confirmed'
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                      : (order.orderStatus || order.statusTimeline) === 'Cancelled' || (order.orderStatus || order.statusTimeline) === 'Rejected'
-                      ? 'bg-rose-100 text-rose-800 border-rose-300'
-                      : 'bg-amber-100 text-amber-800 border-amber-300'
-                  }`}>
-                    Order: {order.orderStatus || order.statusTimeline || 'Pending'}
-                  </span>
+            {/* Header Info Card */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-md space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-indigo-700 font-black">Order ID: #{order.orderId}</span>
+                    
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                      (order.orderStatus || order.statusTimeline) === 'Confirmed'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : (order.orderStatus || order.statusTimeline) === 'Cancelled' || (order.orderStatus || order.statusTimeline) === 'Rejected'
+                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                        : 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                    }`}>
+                      Order Status: {order.orderStatus || order.statusTimeline || 'Order Received'}
+                    </span>
 
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                    order.emailStatus === 'Sent'
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                      : order.emailStatus === 'Failed'
-                      ? 'bg-rose-100 text-rose-800 border-rose-300'
-                      : 'bg-slate-100 text-slate-700 border-slate-300'
-                  }`}>
-                    Email: {order.emailStatus || 'Not Sent'}
-                  </span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                      (order.paymentStatus || '').toUpperCase().includes('PAID')
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                    }`}>
+                      Payment: {order.paymentStatus || 'PAID'}
+                    </span>
+
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                      (order.emailStatus || '').toUpperCase() === 'SENT'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : (order.emailStatus || '').toUpperCase() === 'FAILED'
+                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                        : 'bg-slate-100 text-slate-700 border-slate-300'
+                    }`}>
+                      Email: {order.emailStatus || 'NOT_SENT'}
+                    </span>
+                  </div>
+                  
+                  <h2 className="text-lg font-black text-slate-900 mt-2">
+                    {order.items && order.items[0] ? order.items[0].title : 'VibeForge Service Package'}
+                  </h2>
+                  <div className="text-xs text-slate-600 font-semibold mt-1">
+                    Customer: <span className="text-slate-900 font-bold">{order.customerName}</span> ({order.customerEmail})
+                  </div>
                 </div>
-                
-                <h2 className="text-lg font-extrabold text-slate-900 mt-1">
-                  {order.items && order.items[0] ? order.items[0].title : 'VibeForge Project Service'}
-                </h2>
-                <div className="text-xs text-slate-600 font-semibold mt-1">
-                  Customer: <span className="text-slate-900 font-extrabold">{order.customerName}</span> ({order.customerEmail})
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={handleDownloadInvoice}
+                    className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-white" />
+                    <span>PDF Invoice</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={handleDownloadInvoice}
-                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-white" />
-                  <span>PDF Invoice</span>
-                </button>
-
-                {order.statusTimeline !== 'Cancelled' && order.statusTimeline !== 'Delivered' && (
-                  <button
-                    onClick={() => setShowCancelModal(true)}
-                    className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-extrabold border border-rose-200 transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <XCircle className="w-4 h-4 text-rose-600" />
-                    <span>Cancel Order</span>
-                  </button>
-                )}
+              {/* Status Metadata Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Package Value</div>
+                  <div className="font-black text-slate-900 mt-0.5">₹{order.totalAmount || 0}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Amount Paid</div>
+                  <div className="font-black text-emerald-700 mt-0.5">₹{order.amountPaid || 0}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Remaining Balance</div>
+                  <div className="font-black text-amber-700 mt-0.5">₹{order.amountDue || 0}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Last Updated</div>
+                  <div className="font-extrabold text-slate-700 mt-0.5">{formatLastUpdated(order)}</div>
+                </div>
               </div>
             </div>
 

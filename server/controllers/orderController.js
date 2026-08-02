@@ -46,7 +46,7 @@ const createOrder = async (req, res) => {
     } = req.body;
 
     let subtotal = 0;
-    items.forEach((item) => {
+    (items || []).forEach((item) => {
       let itemPrice = Number(item.price) || 0;
       if (item.priority === 'fast') itemPrice += 100;
       if (item.priority === 'express') itemPrice += 200;
@@ -65,9 +65,9 @@ const createOrder = async (req, res) => {
     const totalAmount = Number(req.body.totalAmount) > 0 ? Number(req.body.totalAmount) : (discountedSubtotal + gst);
     const amountPaid = req.body.amountPaid !== undefined && req.body.amountPaid !== null ? Number(req.body.amountPaid) : (paymentType === 'advance_50' ? Math.round(totalAmount * 0.5) : paymentType === 'token_50' ? 50 : totalAmount);
     const amountDue = req.body.amountDue !== undefined && req.body.amountDue !== null ? Number(req.body.amountDue) : Math.max(0, totalAmount - amountPaid);
-    const paymentStatus = req.body.paymentStatus || (paymentType === 'pay_later' ? 'pending' : amountDue > 0 ? 'partially_paid' : 'paid');
+    const paymentStatus = req.body.paymentStatus || (paymentType === 'pay_later' ? 'UNPAID' : amountDue > 0 ? 'PARTIALLY PAID' : 'PAID');
 
-    // Prefer client-provided orderId when available to keep Firestore and MongoDB in sync
+    // Prefer client-provided orderId when available (e.g. VF-881262) to keep Firestore and MongoDB in sync
     const orderId = req.body.orderId && String(req.body.orderId).trim()
       ? String(req.body.orderId).trim()
       : 'VF-' + Math.floor(100000 + Math.random() * 900000);
@@ -89,46 +89,103 @@ const createOrder = async (req, res) => {
       amountDue,
       paymentMethod: paymentMethod || 'Razorpay / UPI',
       paymentStatus,
-      orderStatus: 'Pending',
-      emailStatus: 'Not Sent',
-      statusTimeline: 'Pending',
+      orderStatus: 'Order Received',
+      emailStatus: 'NOT_SENT',
+      statusTimeline: 'Order Received',
       adminNotificationEmail: 'vibeforge@gmail.com',
       adminNotificationPhone: '9943380320',
       createdAt: new Date(),
     };
 
-    console.log(`\n📦 [ORDER RECEIVED] Order #${orderId} Saved in MongoDB. Order Status: Pending. Email Status: Not Sent.`);
+    console.log(`\n📦 [NEW ORDER RECEIVED] Order #${orderId} Saved in MongoDB. Status: Order Received. Email: NOT_SENT.`);
 
-    // Store in mock store as backup for sync
-    mockOrdersDB.unshift({ ...orderData, createdAt: new Date() });
+    // Upsert in MongoDB to prevent duplicate orders
+    let order = await Order.findOneAndUpdate(
+      { orderId },
+      { $set: orderData },
+      { upsert: true, new: true, runValidators: false }
+    );
+
+    console.log(`✅ Order #${orderId} saved/upserted in MongoDB database.`);
+
+    // Backup in memory store
+    const existingIdx = mockOrdersDB.findIndex((o) => o.orderId === orderId);
+    if (existingIdx !== -1) {
+      mockOrdersDB[existingIdx] = { ...orderData, _id: order._id };
+    } else {
+      mockOrdersDB.unshift({ ...orderData, _id: order._id });
+    }
     syncMockOrdersStore();
 
-    try {
-      // Step 1: Save order to MongoDB database first (DO NOT send email)
-      const order = await Order.create(orderData);
-      console.log(`✅ Order #${orderId} successfully saved in MongoDB database.`);
-
-      // Emit real-time Socket.IO event to all admin clients
-      const io = req.app.get('io');
-      if (io) {
-        io.emit('order:created', orderData);
-        io.emit('notification:order', {
-          title: `New Order Received! #${orderId}`,
-          message: `${customerName} ordered ${items?.[0]?.title || 'Service'} for ₹${totalAmount}`,
-          orderId
-        });
-      }
-
-      return res.status(201).json(order);
-    } catch (dbErr) {
-      console.error('❌ MongoDB order save failed:', dbErr.message);
-      return res.status(500).json({
-        message: 'Failed to save order in MongoDB.',
-        error: dbErr.message,
+    // Emit Socket.IO events immediately to Admin Dashboard
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('newOrder', order);
+      io.emit('order:created', order);
+      io.emit('notification:order', {
+        title: `New Order Received! #${orderId}`,
+        message: `${customerName} ordered ${items?.[0]?.title || 'Service'} for ₹${totalAmount}`,
+        orderId
       });
     }
+
+    return res.status(201).json(order);
   } catch (error) {
+    console.error('❌ Error creating/upserting order:', error);
     res.status(500).json({ message: 'Error creating order', error: error.message });
+  }
+};
+
+const trackOrder = async (req, res) => {
+  try {
+    const { orderId, email } = req.query;
+    const targetId = orderId || req.params?.id || req.body?.orderId;
+    const targetEmail = email || req.body?.email;
+
+    if (!targetId) {
+      return res.status(400).json({ success: false, message: 'Order ID is required to track order status.' });
+    }
+
+    let order = await Order.findOne({ $or: [{ orderId: targetId.trim() }, { _id: targetId.trim() }] });
+    if (!order) {
+      order = mockOrdersDB.find((o) => o.orderId === targetId.trim() || o._id === targetId.trim());
+    }
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: `Invalid Order ID #${targetId}. No order found.` });
+    }
+
+    if (targetEmail) {
+      const cleanEmail = targetEmail.trim().toLowerCase();
+      const orderCustomerEmail = (order.customerEmail || '').trim().toLowerCase();
+      if (orderCustomerEmail && orderCustomerEmail !== cleanEmail) {
+        return res.status(403).json({ success: false, message: 'Email address does not match this Order ID.' });
+      }
+    }
+
+    return res.json({
+      success: true,
+      order: {
+        orderId: order.orderId,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerPhone: order.customerPhone,
+        items: order.items,
+        totalAmount: order.totalAmount,
+        amountPaid: order.amountPaid,
+        amountDue: order.amountDue,
+        paymentStatus: order.paymentStatus || 'PAID',
+        orderStatus: order.orderStatus || order.statusTimeline || 'Order Received',
+        emailStatus: order.emailStatus || 'NOT_SENT',
+        emailSentAt: order.emailSentAt || null,
+        statusTimeline: order.statusTimeline || order.orderStatus || 'Order Received',
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt || order.createdAt,
+      }
+    });
+  } catch (error) {
+    console.error('Error tracking order:', error);
+    res.status(500).json({ success: false, message: 'Error retrieving order status: ' + error.message });
   }
 };
 
@@ -226,7 +283,7 @@ const verifyRazorpayPayment = async (req, res) => {
     let order = await Order.findOne({ orderId });
     if (order) {
       order.razorpayPaymentId = razorpayPaymentId || 'pay_mock_' + Date.now();
-      order.paymentStatus = order.amountDue > 0 ? 'partially_paid' : 'paid';
+      order.paymentStatus = order.amountDue > 0 ? 'PARTIALLY PAID' : 'PAID';
       await order.save();
       return res.json({ message: 'Payment verified successfully', order });
     }
@@ -234,7 +291,7 @@ const verifyRazorpayPayment = async (req, res) => {
     const mock = mockOrdersDB.find((o) => o.orderId === orderId);
     if (mock) {
       mock.razorpayPaymentId = razorpayPaymentId || 'pay_mock_' + Date.now();
-      mock.paymentStatus = mock.amountDue > 0 ? 'partially_paid' : 'paid';
+      mock.paymentStatus = mock.amountDue > 0 ? 'PARTIALLY PAID' : 'PAID';
       return res.json({ message: 'Payment verified successfully', order: mock });
     }
 
@@ -246,9 +303,8 @@ const verifyRazorpayPayment = async (req, res) => {
 
 const sendConfirmationEmailHandler = async (req, res) => {
   try {
-    const orderData = req.body;
-    const orderIdParam = req.params?.id;
-    const targetOrderId = orderIdParam || orderData?.orderId;
+    const orderData = req.body || {};
+    const targetOrderId = req.params?.orderId || req.params?.id || orderData?.orderId;
 
     if (!targetOrderId && !orderData?.customerEmail) {
       return res.status(400).json({ success: false, message: 'Customer email or Order ID is required.' });
@@ -264,7 +320,7 @@ const sendConfirmationEmailHandler = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Customer email is required.' });
     }
 
-    console.log(`✉️ Admin triggered Brevo SMTP confirmation email for Order #${payloadToEmail.orderId} -> ${payloadToEmail.customerEmail}`);
+    console.log(`✉️ Admin triggered Brevo SMTP confirmation email for Order #${payloadToEmail.orderId || targetOrderId} -> ${payloadToEmail.customerEmail}`);
 
     const customerSent = await sendOrderConfirmation(payloadToEmail);
 
@@ -273,7 +329,7 @@ const sendConfirmationEmailHandler = async (req, res) => {
       if (order) {
         order.orderStatus = 'Confirmed';
         order.statusTimeline = 'Confirmed';
-        order.emailStatus = 'Sent';
+        order.emailStatus = 'SENT';
         order.emailSentAt = now;
         await order.save();
       }
@@ -282,39 +338,46 @@ const sendConfirmationEmailHandler = async (req, res) => {
       if (mockIndex !== -1) {
         mockOrdersDB[mockIndex].orderStatus = 'Confirmed';
         mockOrdersDB[mockIndex].statusTimeline = 'Confirmed';
-        mockOrdersDB[mockIndex].emailStatus = 'Sent';
+        mockOrdersDB[mockIndex].emailStatus = 'SENT';
         mockOrdersDB[mockIndex].emailSentAt = now;
         syncMockOrdersStore();
+      }
+
+      const updatedObject = order
+        ? order.toObject()
+        : { ...payloadToEmail, orderStatus: 'Confirmed', statusTimeline: 'Confirmed', emailStatus: 'SENT', emailSentAt: now };
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('orderUpdated', updatedObject);
+        io.emit('order:status_updated', updatedObject);
+        if (targetOrderId) {
+          io.to(`order_${targetOrderId}`).emit('orderUpdated', updatedObject);
+          io.to(`order_${targetOrderId}`).emit('order:status_updated', updatedObject);
+        }
       }
 
       return res.json({
         success: true,
         message: 'Confirmation email sent successfully.',
         orderStatus: 'Confirmed',
-        emailStatus: 'Sent',
+        emailStatus: 'SENT',
         emailSentAt: now,
+        order: updatedObject,
       });
     } else {
       if (order) {
         order.orderStatus = 'Pending';
         order.statusTimeline = 'Pending';
-        order.emailStatus = 'Failed';
+        order.emailStatus = 'FAILED';
         await order.save();
-      }
-
-      const mockIndex = mockOrdersDB.findIndex((o) => o.orderId === payloadToEmail.orderId);
-      if (mockIndex !== -1) {
-        mockOrdersDB[mockIndex].orderStatus = 'Pending';
-        mockOrdersDB[mockIndex].statusTimeline = 'Pending';
-        mockOrdersDB[mockIndex].emailStatus = 'Failed';
-        syncMockOrdersStore();
       }
 
       return res.status(500).json({
         success: false,
-        message: 'Failed to send confirmation email. Order status remains Pending, Email status set to Failed.',
+        message: 'Failed to send confirmation email via Brevo SMTP.',
         orderStatus: 'Pending',
-        emailStatus: 'Failed',
+        emailStatus: 'FAILED',
       });
     }
   } catch (error) {
@@ -325,6 +388,7 @@ const sendConfirmationEmailHandler = async (req, res) => {
 
 module.exports = {
   createOrder,
+  trackOrder,
   notifyAdminOrder,
   getOrderById,
   getMyOrders,

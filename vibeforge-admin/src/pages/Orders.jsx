@@ -6,9 +6,11 @@ import OrderInvoiceModal from '../components/orders/OrderInvoiceModal';
 import { Search, Filter, Eye, FileText, UserPlus, Trash2, Plus, Sparkles, MailCheck, Loader2, Send, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 import { getFirestoreAdminOrders, updateFirestoreOrderStatusAdmin } from '../firebase/adminDbService';
+import { useSocket } from '../context/SocketContext';
 
 export default function Orders() {
   const navigate = useNavigate();
+  const { socket } = useSocket();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,6 +52,45 @@ export default function Orders() {
     fetchOrders();
   }, []);
 
+  // Real-time Socket.IO sync for new orders and status updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewOrder = (newOrder) => {
+      console.log('⚡ [Socket.IO] Real-time newOrder received in Admin:', newOrder);
+      if (newOrder && newOrder.orderId) {
+        setOrders((prev) => {
+          const exists = prev.some((o) => o.orderId === newOrder.orderId);
+          if (exists) {
+            return prev.map((o) => (o.orderId === newOrder.orderId ? { ...o, ...newOrder } : o));
+          }
+          return [newOrder, ...prev];
+        });
+      }
+    };
+
+    const handleOrderUpdated = (updatedOrder) => {
+      console.log('⚡ [Socket.IO] Real-time orderUpdated received in Admin:', updatedOrder);
+      if (updatedOrder && updatedOrder.orderId) {
+        setOrders((prev) =>
+          prev.map((o) => (o.orderId === updatedOrder.orderId ? { ...o, ...updatedOrder } : o))
+        );
+      }
+    };
+
+    socket.on('newOrder', handleNewOrder);
+    socket.on('order:created', handleNewOrder);
+    socket.on('orderUpdated', handleOrderUpdated);
+    socket.on('order:status_updated', handleOrderUpdated);
+
+    return () => {
+      socket.off('newOrder', handleNewOrder);
+      socket.off('order:created', handleNewOrder);
+      socket.off('orderUpdated', handleOrderUpdated);
+      socket.off('order:status_updated', handleOrderUpdated);
+    };
+  }, [socket]);
+
   const handleStatusChange = async (orderId, newStatus) => {
     setUpdatingId(orderId);
     try {
@@ -90,28 +131,33 @@ export default function Orders() {
 
     let payload = null;
     try {
-      const res = await axiosClient.post(`/admin/orders/${order.orderId}/send-confirmation-email`, order);
+      const res = await axiosClient.post(`/orders/${order.orderId}/send-confirmation`, order);
       payload = res?.data || {};
     } catch (err) {
-      const message = err.response?.data?.message || err.message || 'Failed to send confirmation email.';
-      setOrders((prev) =>
-        prev.map((item) =>
-          item.orderId === order.orderId
-            ? {
-                ...item,
-                orderStatus: 'Pending',
-                statusTimeline: 'Pending',
-                emailStatus: 'Failed',
-              }
-            : item
-        )
-      );
-      setFeedback({ type: 'error', message });
-      setSendingEmailOrderId(null);
-      return;
+      try {
+        const res2 = await axiosClient.post(`/admin/orders/${order.orderId}/send-confirmation-email`, order);
+        payload = res2?.data || {};
+      } catch (err2) {
+        const message = err2.response?.data?.message || err.response?.data?.message || err2.message || 'Failed to send confirmation email.';
+        setOrders((prev) =>
+          prev.map((item) =>
+            item.orderId === order.orderId
+              ? {
+                  ...item,
+                  orderStatus: 'Pending',
+                  statusTimeline: 'Pending',
+                  emailStatus: 'FAILED',
+                }
+              : item
+          )
+        );
+        setFeedback({ type: 'error', message });
+        setSendingEmailOrderId(null);
+        return;
+      }
     }
 
-    if (payload?.success || payload?.emailStatus === 'Sent') {
+    if (payload?.success || payload?.emailStatus === 'SENT' || payload?.emailStatus === 'Sent') {
       const sentAt = payload?.emailSentAt || new Date().toISOString();
       setOrders((prev) =>
         prev.map((item) =>
@@ -120,13 +166,13 @@ export default function Orders() {
                 ...item,
                 orderStatus: 'Confirmed',
                 statusTimeline: 'Confirmed',
-                emailStatus: payload.emailStatus || 'Sent',
+                emailStatus: 'SENT',
                 emailSentAt: sentAt,
               }
             : item
         )
       );
-      setFeedback({ type: 'success', message: 'Confirmation email sent successfully.' });
+      setFeedback({ type: 'success', message: 'Confirmation email sent successfully via Brevo!' });
     } else {
       const message = payload?.message || 'Failed to send confirmation email.';
       setOrders((prev) =>
@@ -136,7 +182,7 @@ export default function Orders() {
                 ...item,
                 orderStatus: 'Pending',
                 statusTimeline: 'Pending',
-                emailStatus: 'Failed',
+                emailStatus: 'FAILED',
               }
             : item
         )
