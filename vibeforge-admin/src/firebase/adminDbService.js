@@ -12,9 +12,15 @@ import {
 
 export const getFirestoreAdminOrders = async () => {
   try {
-    const q = query(collection(db, 'orders'), orderBy('timestamp', 'desc'));
-    const snapshot = await getDocs(q);
+    let snapshot;
+    try {
+      const q = query(collection(db, 'orders'), orderBy('timestamp', 'desc'));
+      snapshot = await getDocs(q);
+    } catch (e) {
+      snapshot = await getDocs(collection(db, 'orders'));
+    }
     const orders = snapshot.docs.map((docSnap) => docSnap.data());
+    orders.sort((a, b) => new Date(b.createdAt || b.timestamp || Date.now()) - new Date(a.createdAt || a.timestamp || Date.now()));
     return orders;
   } catch (err) {
     console.warn('[Admin Firestore Orders Fallback Notice]:', err.message);
