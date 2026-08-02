@@ -900,20 +900,6 @@ const confirmClearAllData = async (req, res) => {
   }
 };
 
-module.exports = {
-  adminLogin,
-  getAdminProfile,
-  refreshAdminToken,
-  getAdminStats,
-  getAllOrders,
-  getOrderById,
-  updateOrderStatus,
-  assignEmployeeToOrder,
-  addInternalNote,
-  uploadDeliveryFiles,
-  deleteOrder,
-  getCustomers,
-  getCustomerById,
 const sendAdminConfirmationEmail = async (req, res) => {
   try {
     const { id } = req.params;
