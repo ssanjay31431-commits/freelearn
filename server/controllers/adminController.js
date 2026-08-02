@@ -917,6 +917,105 @@ module.exports = {
   deleteOrder,
   getCustomers,
   getCustomerById,
+const sendAdminConfirmationEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mockOrdersDB } = require('./orderController');
+    const Order = require('../models/Order');
+    const { sendOrderConfirmation } = require('../utils/sendEmail');
+
+    let order = null;
+    try {
+      order = await Order.findOne({ $or: [{ orderId: id }, { _id: id }] });
+    } catch (e) {}
+
+    let mockOrder = (mockOrdersDB || []).find((o) => o.orderId === id || o._id === id);
+
+    const targetOrder = order || mockOrder || req.body;
+    if (!targetOrder || !targetOrder.customerEmail) {
+      return res.status(404).json({ success: false, message: 'Order not found or missing customer email.' });
+    }
+
+    console.log(`✉️ Admin POST /api/admin/orders/${id}/send-confirmation-email requested for ${targetOrder.customerEmail}`);
+
+    const emailSent = await sendOrderConfirmation(targetOrder);
+
+    if (emailSent) {
+      const now = new Date();
+      if (order) {
+        order.orderStatus = 'Confirmed';
+        order.statusTimeline = 'Confirmed';
+        order.emailStatus = 'Sent';
+        order.emailSentAt = now;
+        await order.save();
+      }
+
+      if (mockOrder) {
+        mockOrder.orderStatus = 'Confirmed';
+        mockOrder.statusTimeline = 'Confirmed';
+        mockOrder.emailStatus = 'Sent';
+        mockOrder.emailSentAt = now;
+      }
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('order:status_updated', order || mockOrder || targetOrder);
+      }
+
+      return res.json({
+        success: true,
+        message: 'Confirmation email sent successfully.',
+        orderStatus: 'Confirmed',
+        emailStatus: 'Sent',
+        emailSentAt: now,
+        order: order || mockOrder || targetOrder,
+      });
+    } else {
+      if (order) {
+        order.orderStatus = 'Pending';
+        order.statusTimeline = 'Pending';
+        order.emailStatus = 'Failed';
+        try { await order.save(); } catch (e) {}
+      }
+
+      if (mockOrder) {
+        mockOrder.orderStatus = 'Pending';
+        mockOrder.statusTimeline = 'Pending';
+        mockOrder.emailStatus = 'Failed';
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send confirmation email via Brevo SMTP.',
+        orderStatus: 'Pending',
+        emailStatus: 'Failed',
+        order: order || mockOrder || targetOrder,
+      });
+    }
+  } catch (error) {
+    console.error('Error in sendAdminConfirmationEmail:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error processing confirmation email',
+      error: error.message,
+    });
+  }
+};
+
+module.exports = {
+  adminLogin,
+  getAdminProfile,
+  refreshAdminToken,
+  getAdminStats,
+  getAllOrders,
+  getOrderById,
+  updateOrderStatus,
+  assignEmployeeToOrder,
+  addInternalNote,
+  uploadDeliveryFiles,
+  deleteOrder,
+  getCustomers,
+  getCustomerById,
   toggleCustomerStatus,
   deleteCustomer,
   getOffers,
@@ -933,5 +1032,6 @@ module.exports = {
   resetAdminPassword,
   requestClearDataOtp,
   confirmClearAllData,
+  sendAdminConfirmationEmail,
   mockUsersDB
 };

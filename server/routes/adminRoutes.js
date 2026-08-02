@@ -29,7 +29,8 @@ const {
   verifyAdminOtp,
   resetAdminPassword,
   requestClearDataOtp,
-  confirmClearAllData
+  confirmClearAllData,
+  sendAdminConfirmationEmail
 } = require('../controllers/adminController');
 const { protectAdmin, authorizeRoles } = require('../middleware/adminAuthMiddleware');
 
@@ -39,6 +40,7 @@ router.post('/refresh', refreshAdminToken);
 router.post('/forgot-password', forgotAdminPassword);
 router.post('/verify-otp', verifyAdminOtp);
 router.post('/reset-password', resetAdminPassword);
+router.post('/orders/:id/send-confirmation-email', sendAdminConfirmationEmail);
 
 // Protected Admin Routes
 router.use(protectAdmin);
@@ -50,6 +52,7 @@ router.get('/stats', getAdminStats); // Legacy support
 // Orders
 router.get('/orders', getAllOrders);
 router.get('/orders/:id', getOrderById);
+router.post('/orders/:id/send-confirmation-email', sendAdminConfirmationEmail);
 router.put('/orders/:id/status', updateOrderStatus);
 router.put('/order/:id', updateOrderStatus); // Legacy support
 router.put('/orders/:id/assign', assignEmployeeToOrder);

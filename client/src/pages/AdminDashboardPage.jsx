@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Package, Users, FileText, CheckCircle2, Clock, Settings, LogOut, ArrowRight, RefreshCw, Mail, Send, Check, AlertCircle, X, Loader2 } from 'lucide-react';
+import { DollarSign, Package, Users, FileText, CheckCircle2, Clock, Settings, LogOut, ArrowRight, RefreshCw, Mail, Send, Check, AlertCircle, X, Loader2, Download, Eye } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { getAllFirestoreOrders, getAllFirestoreQuotes, updateFirestoreOrderStatus } from '../firebase/dbService';
+import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 
 export const AdminDashboardPage = () => {
   const { user, logout } = useContext(AuthContext);
@@ -16,7 +17,7 @@ export const AdminDashboardPage = () => {
   // Email confirmation state
   const [confirmModalOrder, setConfirmModalOrder] = useState(null);
   const [sendingEmailOrderId, setSendingEmailOrderId] = useState(null);
-  const [toastNotification, setToastNotification] = useState(null); // { type: 'success'|'error', text: '' }
+  const [toastNotification, setToastNotification] = useState(null);
 
   const timelineStages = [
     'Pending',
@@ -79,21 +80,68 @@ export const AdminDashboardPage = () => {
     setConfirmModalOrder(null);
     setSendingEmailOrderId(ord.orderId);
 
-    const k1 = 'xsmtpsib-';
-    const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
-    const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
+    let deliverySuccess = false;
+    let errorMessage = '';
 
-    const customerName = ord.customerName || 'Valued Customer';
-    const orderId = ord.orderId;
-    const product = Array.isArray(ord.items) && ord.items.length > 0
-      ? ord.items.map((i) => i.title || i.name).join(', ')
-      : ord.product || 'VibeForge Digital Service';
-    const quantity = Array.isArray(ord.items) && ord.items.length > 0
-      ? ord.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
-      : ord.quantity || 1;
-    const amount = `₹${ord.totalAmount || 0}`;
+    const apiUrls = [
+      import.meta.env.VITE_API_BASE_URL,
+      import.meta.env.VITE_API_URL,
+      'https://vibeforge-server.onrender.com/api',
+      'https://freelearn.onrender.com/api',
+      'http://localhost:5000/api'
+    ].filter(Boolean);
 
-    const textBody = `Hello ${customerName},
+    const token = localStorage.getItem('vf_token') || '';
+
+    // 1. Call exact backend endpoint: POST /api/admin/orders/:id/send-confirmation-email
+    for (const baseUrl of apiUrls) {
+      try {
+        const cleanUrl = baseUrl.replace(/\/$/, '');
+        const targetEndpoint = cleanUrl.endsWith('/admin')
+          ? `${cleanUrl}/orders/${ord.orderId}/send-confirmation-email`
+          : `${cleanUrl}/admin/orders/${ord.orderId}/send-confirmation-email`;
+
+        const res = await fetch(targetEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(ord),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && (data.success || data.emailStatus === 'Sent')) {
+            deliverySuccess = true;
+            break;
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          errorMessage = errData.message || `API error ${res.status}`;
+        }
+      } catch (e) {
+        console.warn(`[Backend API] POST /admin/orders/${ord.orderId}/send-confirmation-email failed:`, e.message);
+      }
+    }
+
+    // 2. Direct Brevo SMTP API fallback
+    if (!deliverySuccess) {
+      const k1 = 'xsmtpsib-';
+      const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
+      const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
+
+      const customerName = ord.customerName || 'Valued Customer';
+      const orderId = ord.orderId;
+      const product = Array.isArray(ord.items) && ord.items.length > 0
+        ? ord.items.map((i) => i.title || i.name).join(', ')
+        : ord.product || 'VibeForge Digital Service';
+      const quantity = Array.isArray(ord.items) && ord.items.length > 0
+        ? ord.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
+        : ord.quantity || 1;
+      const amount = `₹${ord.totalAmount || 0}`;
+
+      const textBody = `Hello ${customerName},
 
 Thank you for placing your order with VibeForge.
 
@@ -122,83 +170,52 @@ Regards,
 
 VibeForge Team`;
 
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #0f172a;">
-        <h2 style="color: #4f46e5; margin-top: 0;">VibeForge Order Confirmation</h2>
-        <p>Hello <strong>${customerName}</strong>,</p>
-        <p>Thank you for placing your order with VibeForge.</p>
-        <p>Your order has been confirmed successfully.</p>
-        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-        <h3 style="color: #0f172a; margin-bottom: 12px;">Order Details</h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
-          <tr><td style="padding: 6px 0; color: #64748b; width: 140px;"><strong>Order ID:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${orderId}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Product:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${product}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Quantity:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${quantity}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Amount:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${amount}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Order Status:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #16a34a;">Confirmed</td></tr>
-        </table>
-        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-        <p>Thank you for choosing VibeForge.</p>
-        <p style="margin-bottom: 0;">Regards,<br /><strong>VibeForge Team</strong></p>
-      </div>
-    `;
+      const htmlBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #0f172a;">
+          <h2 style="color: #4f46e5; margin-top: 0;">VibeForge Order Confirmation</h2>
+          <p>Hello <strong>${customerName}</strong>,</p>
+          <p>Thank you for placing your order with VibeForge.</p>
+          <p>Your order has been confirmed successfully.</p>
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <h3 style="color: #0f172a; margin-bottom: 12px;">Order Details</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
+            <tr><td style="padding: 6px 0; color: #64748b; width: 140px;"><strong>Order ID:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${orderId}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Product:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${product}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Quantity:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${quantity}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Amount:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${amount}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Order Status:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #16a34a;">Confirmed</td></tr>
+          </table>
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p>Thank you for choosing VibeForge.</p>
+          <p style="margin-bottom: 0;">Regards,<br /><strong>VibeForge Team</strong></p>
+        </div>
+      `;
 
-    let deliverySuccess = false;
-    let errorMessage = '';
+      try {
+        const directRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'api-key': brevoApiKey,
+          },
+          body: JSON.stringify({
+            sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
+            to: [{ email: String(ord.customerEmail).trim(), name: customerName }],
+            subject: 'VibeForge Order Confirmation',
+            htmlContent: htmlBody,
+            textContent: textBody,
+          }),
+        });
 
-    // 1. Primary: Try direct Brevo API
-    try {
-      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': brevoApiKey,
-        },
-        body: JSON.stringify({
-          sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
-          to: [{ email: String(ord.customerEmail).trim(), name: customerName }],
-          subject: 'VibeForge Order Confirmation',
-          htmlContent: htmlBody,
-          textContent: textBody,
-        }),
-      });
-
-      if (res.ok) {
-        deliverySuccess = true;
-      } else {
-        const errResp = await res.text();
-        errorMessage = `Brevo REST API (${res.status}): ${errResp}`;
-      }
-    } catch (apiErr) {
-      errorMessage = apiErr.message;
-    }
-
-    // 2. Secondary: Backend endpoint fallback if primary failed
-    if (!deliverySuccess) {
-      const apiUrls = [
-        import.meta.env.VITE_API_BASE_URL,
-        import.meta.env.VITE_API_URL,
-        'https://vibeforge-server.onrender.com/api',
-        'https://freelearn.onrender.com/api',
-        'http://localhost:5000/api'
-      ].filter(Boolean);
-
-      for (const baseUrl of apiUrls) {
-        try {
-          const cleanUrl = baseUrl.replace(/\/$/, '');
-          const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ord),
-          });
-          if (res.ok) {
-            deliverySuccess = true;
-            break;
-          }
-        } catch (e) {
-          console.warn('Backend send-confirmation attempt failed:', e.message);
+        if (directRes.ok) {
+          deliverySuccess = true;
+        } else {
+          const errText = await directRes.text();
+          errorMessage = `Brevo API (${directRes.status}): ${errText}`;
         }
+      } catch (apiErr) {
+        errorMessage = apiErr.message;
       }
     }
 
@@ -206,7 +223,6 @@ VibeForge Team`;
 
     if (deliverySuccess) {
       const nowStr = new Date().toISOString();
-      // Update state locally
       setOrders((prev) =>
         prev.map((o) =>
           o.orderId === ord.orderId
@@ -215,14 +231,12 @@ VibeForge Team`;
         )
       );
 
-      // Update Firestore
       try {
         await updateFirestoreOrderStatus(ord.orderId, 'Confirmed');
       } catch (e) {}
 
       showToast('success', 'Confirmation email sent successfully.');
     } else {
-      // Update state locally to Failed, keep Pending orderStatus
       setOrders((prev) =>
         prev.map((o) =>
           o.orderId === ord.orderId
@@ -401,7 +415,7 @@ VibeForge Team`;
           ))}
         </div>
 
-        {/* Orders Table & Timeline Controls */}
+        {/* Orders Table & Controls */}
         {(activeTab === 'overview' || activeTab === 'orders') && (
           <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
             <h2 className="text-lg font-bold text-white flex items-center justify-between">
@@ -419,7 +433,6 @@ VibeForge Team`;
                   const currentOrderStatus = ord.orderStatus || ord.statusTimeline || 'Pending';
                   const currentEmailStatus = ord.emailStatus || 'Not Sent';
 
-                  // Badge styles as requested
                   let orderStatusBadge = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
                   if (currentOrderStatus === 'Confirmed') {
                     orderStatusBadge = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
@@ -483,7 +496,7 @@ VibeForge Team`;
                           )}
                         </div>
 
-                        {/* Right Stats & Action Button */}
+                        {/* Right Stats & Action Buttons (Invoice, Details, Send Confirmation Email) */}
                         <div className="flex flex-wrap items-center gap-3 text-right text-xs">
                           <div>
                             <div className="font-extrabold text-emerald-400 text-sm">₹{ord.totalAmount}</div>
@@ -491,8 +504,32 @@ VibeForge Team`;
                             <div className="text-[10px] text-indigo-300 font-bold uppercase">{ord.paymentStatus || 'Pending'}</div>
                           </div>
 
-                          {/* ACTION BUTTON WITH SPECIFIED STATES */}
-                          <div>
+                          {/* ACTION BUTTON GROUP: INVOICE, DETAILS, SEND CONFIRMATION EMAIL */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            
+                            {/* 1. PDF Invoice Button */}
+                            <button
+                              type="button"
+                              onClick={() => generateInvoicePDF(ord)}
+                              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                              title="Download PDF Invoice"
+                            >
+                              <Download className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Invoice</span>
+                            </button>
+
+                            {/* 2. Details Button */}
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/track?id=${ord.orderId}`)}
+                              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                              title="View Live Order Details"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Details</span>
+                            </button>
+
+                            {/* 3. Send Confirmation Email Button */}
                             {currentEmailStatus === 'Sent' ? (
                               <button
                                 disabled
