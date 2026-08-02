@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CreditCard, ShieldCheck, CheckCircle2, Lock, ArrowRight, Zap, Building, Copy, Check, QrCode, MessageCircle, ExternalLink, Sparkles } from 'lucide-react';
 import { CartContext } from '../context/CartContext';
