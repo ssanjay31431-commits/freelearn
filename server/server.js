@@ -50,6 +50,10 @@ app.use('/api/', limiter);
 
 // CORS
 const allowedOrigins = [
+  'https://adminvibeforge.vercel.app',
+  'https://vibeforge.vercel.app',
+  'https://freelearn-seven.vercel.app',
+  'https://vibeforge.netlify.app',
   process.env.CLIENT_URL,
   process.env.ADMIN_URL,
   'http://localhost:5173',
@@ -61,13 +65,15 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some(o => origin && origin.startsWith(o)) || process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
         callback(null, true);
       }
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
   })
 );
 

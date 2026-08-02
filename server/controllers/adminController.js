@@ -903,6 +903,10 @@ const confirmClearAllData = async (req, res) => {
 const sendAdminConfirmationEmail = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log("==========================================");
+    console.log("🚀 [BREVO EMAIL DISPATCH] Admin requested email dispatch");
+    console.log("🆔 Order ID param:", id);
+
     const { mockOrdersDB } = require('./orderController');
     const Order = require('../models/Order');
     const { sendOrderConfirmation } = require('../utils/sendEmail');
@@ -910,16 +914,20 @@ const sendAdminConfirmationEmail = async (req, res) => {
     let order = null;
     try {
       order = await Order.findOne({ $or: [{ orderId: id }, { _id: id }] });
-    } catch (e) {}
-
-    let mockOrder = (mockOrdersDB || []).find((o) => o.orderId === id || o._id === id);
-
-    const targetOrder = order || mockOrder || req.body;
-    if (!targetOrder || !targetOrder.customerEmail) {
-      return res.status(404).json({ success: false, message: 'Order not found or missing customer email.' });
+    } catch (e) {
+      console.warn("MongoDB query exception:", e.message);
     }
 
-    console.log(`✉️ Admin POST /api/admin/orders/${id}/send-confirmation-email requested for ${targetOrder.customerEmail}`);
+    let mockOrder = (mockOrdersDB || []).find((o) => o.orderId === id || o._id === id);
+    const targetOrder = order || mockOrder || req.body;
+
+    if (!targetOrder || !targetOrder.customerEmail) {
+      console.error("❌ Target order or customer email not found for ID:", id);
+      return res.status(404).json({ success: false, message: 'Order not found or missing customer email address.' });
+    }
+
+    console.log("👤 Customer Email:", targetOrder.customerEmail);
+    console.log("📦 Target Order ID:", targetOrder.orderId);
 
     const emailSent = await sendOrderConfirmation(targetOrder);
 
@@ -945,6 +953,9 @@ const sendAdminConfirmationEmail = async (req, res) => {
         io.emit('order:status_updated', order || mockOrder || targetOrder);
       }
 
+      console.log("✅ Confirmation Email Sent Successfully via Brevo!");
+      console.log("==========================================");
+
       return res.json({
         success: true,
         message: 'Confirmation email sent successfully.',
@@ -954,6 +965,7 @@ const sendAdminConfirmationEmail = async (req, res) => {
         order: order || mockOrder || targetOrder,
       });
     } else {
+      console.error("❌ Brevo SMTP failed to deliver email to:", targetOrder.customerEmail);
       if (order) {
         order.orderStatus = 'Pending';
         order.statusTimeline = 'Pending';
@@ -976,7 +988,7 @@ const sendAdminConfirmationEmail = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error in sendAdminConfirmationEmail:', error);
+    console.error("❌ Exception in sendAdminConfirmationEmail:", error.response?.data || error.message);
     return res.status(500).json({
       success: false,
       message: error.message || 'Error processing confirmation email',
