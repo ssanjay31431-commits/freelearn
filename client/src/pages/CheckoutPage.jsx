@@ -106,6 +106,41 @@ export const CheckoutPage = () => {
     }
   };
 
+  const saveOrderToMongoDB = async (orderPayload) => {
+    const apiUrls = [
+      import.meta.env.VITE_API_BASE_URL,
+      import.meta.env.VITE_API_URL,
+      'https://vibeforge-server.onrender.com/api',
+      'https://freelearn.onrender.com/api',
+      'http://localhost:5000/api'
+    ].filter(Boolean);
+
+    for (const baseUrl of apiUrls) {
+      try {
+        const cleanUrl = baseUrl.replace(/\/$/, '');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const res = await fetch(`${cleanUrl}/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(orderPayload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          console.log('✅ Saved order in MongoDB & dispatched Brevo email via backend:', cleanUrl, data);
+          return data;
+        }
+      } catch (e) {
+        console.warn(`[MongoDB Save Attempt] Post to ${baseUrl} failed:`, e.message);
+      }
+    }
+    return null;
+  };
+
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     if (!customerName || !customerEmail || !customerPhone) {
@@ -137,17 +172,23 @@ export const CheckoutPage = () => {
         upiPhone,
       };
 
-      // 1. Write directly to Firebase Firestore
+      // 1. Store order in MongoDB Database & trigger Brevo confirmation email automatically
+      const mongoResult = await saveOrderToMongoDB(orderPayload);
+
+      // 2. Write to Firebase Firestore for instant client tracking
       const createdOrder = await createFirestoreOrder(orderPayload);
 
-      // 2. Send Automated Customer Email via Brevo SMTP
-      await sendCustomerConfirmationEmail(createdOrder);
+      // 3. Guarantee Brevo Customer Email dispatch if server was waking up
+      if (!mongoResult) {
+        await sendCustomerConfirmationEmail(createdOrder);
+      }
 
       clearCart();
       setLoading(false);
 
-      // 3. Seamlessly redirect to tracking page with auto-WhatsApp trigger
-      navigate(`/track?id=${createdOrder.orderId}&newOrder=true`);
+      // 4. Redirect to tracking page
+      const targetId = mongoResult?.orderId || createdOrder.orderId;
+      navigate(`/track?id=${targetId}&newOrder=true`);
     } catch (err) {
       console.error(err);
       setLoading(false);

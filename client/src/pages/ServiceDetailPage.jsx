@@ -80,22 +80,12 @@ export const ServiceDetailPage = () => {
   };
 
   const handleAddToCart = () => {
-    if (!user) {
-      setPendingAction('cart');
-      setIsAuthModalOpen(true);
-      return;
-    }
     addToCart(buildCartItem());
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
 
   const handleBuyNow = () => {
-    if (!user) {
-      setPendingAction('buy');
-      setIsAuthModalOpen(true);
-      return;
-    }
     addToCart(buildCartItem());
     navigate('/checkout');
   };
