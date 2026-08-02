@@ -20,13 +20,12 @@ const orderSchema = new mongoose.Schema(
         referenceFile: { type: String, default: '' },
       },
     ],
-    subtotal: { type: Number, required: true },
+    subtotal: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
-    gst: { type: Number, required: true },
+    gst: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
     paymentType: {
       type: String,
-      enum: ['full', 'advance_50', 'pay_later'],
       default: 'full',
     },
     amountPaid: { type: Number, required: true },
@@ -34,7 +33,6 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: { type: String, default: 'Razorpay' },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'partially_paid', 'paid', 'failed'],
       default: 'pending',
     },
     razorpayOrderId: { type: String, default: '' },

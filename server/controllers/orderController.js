@@ -62,21 +62,10 @@ const createOrder = async (req, res) => {
 
     const discountedSubtotal = Math.max(0, subtotal - discount);
     const gst = Math.round(discountedSubtotal * 0.18);
-    const totalAmount = discountedSubtotal + gst;
-
-    let amountPaid = totalAmount;
-    let amountDue = 0;
-
-    if (paymentType === 'advance_50') {
-      amountPaid = Math.round(totalAmount * 0.5);
-      amountDue = totalAmount - amountPaid;
-    } else if (paymentType === 'token_50') {
-      amountPaid = 50;
-      amountDue = Math.max(0, totalAmount - 50);
-    } else if (paymentType === 'pay_later') {
-      amountPaid = 0;
-      amountDue = totalAmount;
-    }
+    const totalAmount = Number(req.body.totalAmount) > 0 ? Number(req.body.totalAmount) : (discountedSubtotal + gst);
+    const amountPaid = req.body.amountPaid !== undefined && req.body.amountPaid !== null ? Number(req.body.amountPaid) : (paymentType === 'advance_50' ? Math.round(totalAmount * 0.5) : paymentType === 'token_50' ? 50 : totalAmount);
+    const amountDue = req.body.amountDue !== undefined && req.body.amountDue !== null ? Number(req.body.amountDue) : Math.max(0, totalAmount - amountPaid);
+    const paymentStatus = req.body.paymentStatus || (paymentType === 'pay_later' ? 'pending' : amountDue > 0 ? 'partially_paid' : 'paid');
 
     // Prefer client-provided orderId when available to keep Firestore and MongoDB in sync
     const orderId = req.body.orderId && String(req.body.orderId).trim()
@@ -90,16 +79,16 @@ const createOrder = async (req, res) => {
       customerEmail,
       customerPhone,
       address: address || '',
-      items,
-      subtotal,
-      discount,
-      gst,
+      items: items || [],
+      subtotal: subtotal || totalAmount,
+      discount: discount || 0,
+      gst: gst || 0,
       totalAmount,
-      paymentType: paymentType || 'full',
+      paymentType: req.body.paymentType || paymentType || 'full',
       amountPaid,
       amountDue,
       paymentMethod: paymentMethod || 'Razorpay / UPI',
-      paymentStatus: paymentType === 'pay_later' ? 'pending' : amountDue > 0 ? 'partially_paid' : 'paid',
+      paymentStatus,
       orderStatus: 'Pending',
       emailStatus: 'Not Sent',
       statusTimeline: 'Pending',
