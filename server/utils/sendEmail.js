@@ -1,5 +1,6 @@
 const dotenv = require('dotenv');
 const nodemailer = require('nodemailer');
+const axios = require('axios');
 
 dotenv.config();
 
@@ -100,33 +101,41 @@ const sendEmail = async ({ to, subject, html, text }) => {
   console.log(`📌 Subject: ${subject}`);
 
   try {
-    const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-key': apiKey,
-      },
-      body: JSON.stringify({
+    const brevoRes = await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      {
         sender: { name: senderName, email: cleanSenderEmail },
         to: recipients.map((email) => ({ email: String(email).trim() })),
         subject,
         htmlContent: html,
         textContent: text || '',
-      }),
-    });
+      },
+      {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'api-key': apiKey,
+        },
+        timeout: 15000,
+      }
+    );
 
-    if (brevoRes.ok) {
-      const data = await brevoRes.json();
-      console.log(`✅ [BREVO REST API SUCCESS] Message ID:`, data?.messageId || data?.id || 'OK');
-      logEmailDetails({ stage: 'SUCCESS', to: recipients, sender: fromAddress, subject, response: data });
-      return true;
-    } else {
-      const errText = await brevoRes.text();
-      console.warn('⚠️ Brevo REST API non-200 response:', brevoRes.status, errText);
-    }
+    const responseJson = brevoRes?.data || {};
+    console.log(`✅ [BREVO REST API SUCCESS] Message ID:`, responseJson?.messageId || responseJson?.id || 'OK');
+    logEmailDetails({ stage: 'SUCCESS', to: recipients, sender: fromAddress, subject, response: responseJson });
+    return true;
   } catch (apiErr) {
-    console.warn('⚠️ Brevo REST API exception:', apiErr.message);
+    const statusCode = apiErr.response?.status || 'UNKNOWN';
+    const responseData = apiErr.response?.data || apiErr.message || {};
+    console.warn('⚠️ Brevo REST API exception:', statusCode, responseData);
+    logEmailDetails({
+      stage: 'EXCEPTION',
+      to: recipients,
+      sender: fromAddress,
+      subject,
+      response: responseData,
+      error: { message: apiErr.message, status: statusCode },
+    });
   }
 
   // Method 2: Fallback to Nodemailer SMTP
