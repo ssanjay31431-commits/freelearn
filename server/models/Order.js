@@ -39,9 +39,23 @@ const orderSchema = new mongoose.Schema(
     },
     razorpayOrderId: { type: String, default: '' },
     razorpayPaymentId: { type: String, default: '' },
+    orderStatus: {
+      type: String,
+      enum: ['Pending', 'Confirmed', 'Rejected', 'Order Received', 'Planning', 'Designing', 'Development', 'Review', 'Completed', 'Delivered'],
+      default: 'Pending',
+    },
+    emailStatus: {
+      type: String,
+      enum: ['Not Sent', 'Sent', 'Failed'],
+      default: 'Not Sent',
+    },
+    emailSentAt: { type: Date },
     statusTimeline: {
       type: String,
       enum: [
+        'Pending',
+        'Confirmed',
+        'Rejected',
         'Order Received',
         'Planning',
         'Designing',
@@ -50,7 +64,7 @@ const orderSchema = new mongoose.Schema(
         'Completed',
         'Delivered',
       ],
-      default: 'Order Received',
+      default: 'Pending',
     },
     notes: { type: String, default: '' },
     assignedEmployee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

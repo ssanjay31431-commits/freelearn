@@ -108,27 +108,24 @@ const createOrder = async (req, res) => {
       amountDue,
       paymentMethod: paymentMethod || 'Razorpay / UPI',
       paymentStatus: paymentType === 'pay_later' ? 'pending' : amountDue > 0 ? 'partially_paid' : 'paid',
-      statusTimeline: 'Order Received',
+      orderStatus: 'Pending',
+      emailStatus: 'Not Sent',
+      statusTimeline: 'Pending',
       adminNotificationEmail: 'vibeforge@gmail.com',
       adminNotificationPhone: '9943380320',
       createdAt: new Date(),
     };
 
-    console.log(`\n🚨 [AUTOMATED ORDER DISPATCH] Order #${orderId} Received!`);
-    console.log(`✉️ Sending Confirmation Email to Customer: ${customerEmail}`);
-    console.log(`✉️ Sending Notification Email to Admin: ${process.env.ADMIN_EMAIL || 'vibeforgemrs@gmail.com'}`);
+    console.log(`\n📦 [ORDER RECEIVED] Order #${orderId} Saved in MongoDB. Order Status: Pending. Email Status: Not Sent.`);
 
     // Store in mock store as backup for sync
     mockOrdersDB.unshift({ ...orderData, createdAt: new Date() });
     syncMockOrdersStore();
 
     try {
-      // Step 1: Save order to MongoDB database first
+      // Step 1: Save order to MongoDB database first (DO NOT send email)
       const order = await Order.create(orderData);
       console.log(`✅ Order #${orderId} successfully saved in MongoDB database.`);
-
-      // Step 2: Trigger sendOrderConfirmation ONLY AFTER MongoDB successfully stores the order
-      await dispatchOrderEmails(orderData);
 
       // Emit real-time Socket.IO event to all admin clients
       const io = req.app.get('io');
@@ -144,9 +141,8 @@ const createOrder = async (req, res) => {
       return res.status(201).json(order);
     } catch (dbErr) {
       console.error('❌ MongoDB order save failed:', dbErr.message);
-      // Ensure email is sent ONLY after MongoDB successfully stores the order
       return res.status(500).json({
-        message: 'Failed to save order in MongoDB. Order confirmation email was not dispatched.',
+        message: 'Failed to save order in MongoDB.',
         error: dbErr.message,
       });
     }
@@ -270,31 +266,79 @@ const verifyRazorpayPayment = async (req, res) => {
 const sendConfirmationEmailHandler = async (req, res) => {
   try {
     const orderData = req.body;
-    if (!orderData || !orderData.customerEmail) {
+    const orderIdParam = req.params?.id;
+    const targetOrderId = orderIdParam || orderData?.orderId;
+
+    if (!targetOrderId && !orderData?.customerEmail) {
+      return res.status(400).json({ success: false, message: 'Customer email or Order ID is required.' });
+    }
+
+    let order = null;
+    if (targetOrderId) {
+      order = await Order.findOne({ $or: [{ orderId: targetOrderId }, { _id: targetOrderId }] });
+    }
+
+    const payloadToEmail = order ? order.toObject() : orderData;
+    if (!payloadToEmail || !payloadToEmail.customerEmail) {
       return res.status(400).json({ success: false, message: 'Customer email is required.' });
     }
 
-    console.log(`✉️ Direct Brevo SMTP email trigger requested for order #${orderData.orderId || 'N/A'} -> ${orderData.customerEmail}`);
+    console.log(`✉️ Admin triggered Brevo SMTP confirmation email for Order #${payloadToEmail.orderId} -> ${payloadToEmail.customerEmail}`);
 
-    const customerSent = await sendOrderConfirmation(orderData);
-    const adminSent = await sendAdminNotification({
-      subject: `🚀 New Order Received | Order #${orderData.orderId || ''}`,
-      customerName: orderData.customerName,
-      customerEmail: orderData.customerEmail,
-      customerPhone: orderData.customerPhone,
-      message: `Order #${orderData.orderId} placed. Total: ₹${orderData.totalAmount || 0}, Paid: ₹${orderData.amountPaid || 0}`,
-      details: orderData
-    });
+    const customerSent = await sendOrderConfirmation(payloadToEmail);
 
-    res.json({
-      success: true,
-      customerSent,
-      adminSent,
-      message: customerSent ? 'Order confirmation email delivered successfully via Brevo SMTP.' : 'Email processed.'
-    });
+    if (customerSent) {
+      const now = new Date();
+      if (order) {
+        order.orderStatus = 'Confirmed';
+        order.statusTimeline = 'Confirmed';
+        order.emailStatus = 'Sent';
+        order.emailSentAt = now;
+        await order.save();
+      }
+
+      const mockIndex = mockOrdersDB.findIndex((o) => o.orderId === payloadToEmail.orderId);
+      if (mockIndex !== -1) {
+        mockOrdersDB[mockIndex].orderStatus = 'Confirmed';
+        mockOrdersDB[mockIndex].statusTimeline = 'Confirmed';
+        mockOrdersDB[mockIndex].emailStatus = 'Sent';
+        mockOrdersDB[mockIndex].emailSentAt = now;
+        syncMockOrdersStore();
+      }
+
+      return res.json({
+        success: true,
+        message: 'Confirmation email sent successfully.',
+        orderStatus: 'Confirmed',
+        emailStatus: 'Sent',
+        emailSentAt: now,
+      });
+    } else {
+      if (order) {
+        order.orderStatus = 'Pending';
+        order.statusTimeline = 'Pending';
+        order.emailStatus = 'Failed';
+        await order.save();
+      }
+
+      const mockIndex = mockOrdersDB.findIndex((o) => o.orderId === payloadToEmail.orderId);
+      if (mockIndex !== -1) {
+        mockOrdersDB[mockIndex].orderStatus = 'Pending';
+        mockOrdersDB[mockIndex].statusTimeline = 'Pending';
+        mockOrdersDB[mockIndex].emailStatus = 'Failed';
+        syncMockOrdersStore();
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send confirmation email. Order status remains Pending, Email status set to Failed.',
+        orderStatus: 'Pending',
+        emailStatus: 'Failed',
+      });
+    }
   } catch (error) {
     console.error('Error in sendConfirmationEmailHandler:', error);
-    res.status(500).json({ success: false, message: 'Email dispatch error', error: error.message });
+    res.status(500).json({ success: false, message: 'Email dispatch error: ' + error.message, error: error.message });
   }
 };
 

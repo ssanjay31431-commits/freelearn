@@ -214,7 +214,9 @@ export const CheckoutPage = () => {
         paymentType,
         paymentMethod,
         paymentStatus: paymentType === 'token_50' ? 'Token Deposit Paid (Rs.50 Deducted)' : paymentType === 'advance_50' ? 'Advance Paid (50%)' : 'Full Payment Completed',
-        statusTimeline: 'Order Received',
+        orderStatus: 'Pending',
+        statusTimeline: 'Pending',
+        emailStatus: 'Not Sent',
         couponCode: coupon?.code || '',
         adminNotificationEmail: adminEmail,
         adminNotificationPhone: adminWhatsAppPhone,
@@ -222,15 +224,13 @@ export const CheckoutPage = () => {
         upiPhone,
       };
 
-      // 1. Store order in MongoDB Database
+      // 1. Store order in MongoDB Database with Order Status = Pending, Email Status = Not Sent
       const mongoResult = await saveOrderToMongoDB(orderPayload);
 
-      // 2. Write to Firebase Firestore for instant client tracking
+      // 2. Write to Firebase Firestore
       const createdOrder = await createFirestoreOrder(orderPayload);
 
-      // 3. Guarantee Brevo Customer Email is sent to customer's email inbox immediately!
-      await sendCustomerConfirmationEmail(createdOrder || orderPayload);
-
+      // 3. Clear cart (Do NOT send any email automatically from customer website)
       clearCart();
       setLoading(false);
 

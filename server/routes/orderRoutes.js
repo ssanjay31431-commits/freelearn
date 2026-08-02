@@ -12,6 +12,7 @@ const { protect, optionalProtect } = require('../middleware/authMiddleware');
 
 router.post('/', optionalProtect, createOrder);
 router.post('/send-confirmation', sendConfirmationEmailHandler);
+router.post('/:id/send-confirmation', sendConfirmationEmailHandler);
 router.post('/notify-admin', notifyAdminOrder);
 router.get('/myorders', protect, getMyOrders);
 router.get('/:id', getOrderById);

@@ -474,19 +474,75 @@ const sendCustomerOrderEmail = async (orderData) => {
     return false;
   }
 
-  const customerEmail = String(orderData.customerEmail).trim();
-  const html = getOrderConfirmationTemplate(orderData);
-  const text = `Hello ${orderData.customerName || 'Valued Customer'},\n\nYour order #${orderData.orderId} has been confirmed.\nTrack your order live: https://vibeforge.netlify.app/track?id=${orderData.orderId}`;
+  const customerName = orderData.customerName || 'Valued Customer';
+  const orderId = orderData.orderId || 'N/A';
+  const product = Array.isArray(orderData.items) && orderData.items.length > 0
+    ? orderData.items.map((i) => i.title || i.name).join(', ')
+    : orderData.product || orderData.title || 'VibeForge Digital Service';
+  const quantity = Array.isArray(orderData.items) && orderData.items.length > 0
+    ? orderData.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
+    : orderData.quantity || 1;
+  const amount = `₹${orderData.totalAmount || orderData.amountPaid || 0}`;
+
+  const textBody = `Hello ${customerName},
+
+Thank you for placing your order with VibeForge.
+
+Your order has been confirmed successfully.
+
+Order Details
+
+Order ID:
+${orderId}
+
+Product:
+${product}
+
+Quantity:
+${quantity}
+
+Amount:
+${amount}
+
+Order Status:
+Confirmed
+
+Thank you for choosing VibeForge.
+
+Regards,
+
+VibeForge Team`;
+
+  const htmlBody = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #0f172a;">
+      <h2 style="color: #4f46e5; margin-top: 0;">VibeForge Order Confirmation</h2>
+      <p>Hello <strong>${customerName}</strong>,</p>
+      <p>Thank you for placing your order with VibeForge.</p>
+      <p>Your order has been confirmed successfully.</p>
+      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+      <h3 style="color: #0f172a; margin-bottom: 12px;">Order Details</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
+        <tr><td style="padding: 6px 0; color: #64748b; width: 140px;"><strong>Order ID:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${orderId}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;"><strong>Product:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${product}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;"><strong>Quantity:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${quantity}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;"><strong>Amount:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${amount}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;"><strong>Order Status:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #16a34a;">Confirmed</td></tr>
+      </table>
+      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+      <p>Thank you for choosing VibeForge.</p>
+      <p style="margin-bottom: 0;">Regards,<br /><strong>VibeForge Team</strong></p>
+    </div>
+  `;
 
   const ok = await sendEmail({
-    to: [customerEmail],
-    subject: `🎉 Order Confirmed | VibeForge Order #${orderData.orderId || ''}`,
-    html,
-    text,
+    to: [String(orderData.customerEmail).trim()],
+    subject: 'VibeForge Order Confirmation',
+    html: htmlBody,
+    text: textBody,
   });
 
   if (ok) {
-    console.log(`[Brevo SMTP] Customer order confirmation email sent to ${customerEmail}`);
+    console.log(`[Brevo SMTP] Customer order confirmation email sent to ${orderData.customerEmail}`);
   }
 
   return ok;

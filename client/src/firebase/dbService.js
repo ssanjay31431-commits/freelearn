@@ -86,7 +86,7 @@ let localQuotes = [];
    1. ORDERS FIRESTORE OPERATIONS
    ==================================================== */
 export const createFirestoreOrder = async (orderData) => {
-  const orderId = `VF-${Math.floor(100000 + Math.random() * 900000)}`;
+  const orderId = orderData.orderId || `VF-${Math.floor(100000 + Math.random() * 900000)}`;
   const fullOrder = {
     orderId,
     user: orderData.user || null,
@@ -100,7 +100,10 @@ export const createFirestoreOrder = async (orderData) => {
     amountDue: Number(orderData.amountDue || 0),
     advancePercentage: Number(orderData.advancePercentage || 50),
     paymentStatus: orderData.paymentStatus || 'Advance Paid (50%)',
-    statusTimeline: orderData.statusTimeline || 'Order Received',
+    orderStatus: orderData.orderStatus || 'Pending',
+    statusTimeline: orderData.statusTimeline || 'Pending',
+    emailStatus: orderData.emailStatus || 'Not Sent',
+    emailSentAt: orderData.emailSentAt || null,
     adminEmailAlert: 'vibeforge@gmail.com',
     adminPhoneAlert: '9943380320',
     createdAt: new Date().toISOString(),
