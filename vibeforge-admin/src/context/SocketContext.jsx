@@ -8,17 +8,29 @@ export const SocketProvider = ({ children }) => {
   const [liveNotifications, setLiveNotifications] = useState([]);
 
   useEffect(() => {
+    // Use environment override if provided, otherwise use the production Render URL.
+    // Make sure to set VITE_SOCKET_URL in Vercel to https://vibeforge-hq68.onrender.com
     const socketUrl = import.meta.env.VITE_SOCKET_URL
       || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-        ? 'https://vibeforge-server.onrender.com'
+        ? 'https://vibeforge-hq68.onrender.com'
         : 'http://localhost:5000');
+
     const newSocket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
       autoConnect: true,
-      reconnection: true
+      reconnection: true,
+      secure: socketUrl.startsWith('https'),
+      // If you need to pass auth headers/token, add here:
+      // auth: { token: localStorage.getItem('token') || '' }
     });
 
     newSocket.on('connect', () => {
-      console.log('⚡ Admin Socket Connected:', newSocket.id);
+      console.log('⚡ Admin Socket Connected:', newSocket.id, 'to', socketUrl);
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('⚡ Admin Socket Connection Error:', err && (err.message || err));
     });
 
     newSocket.on('notification:order', (data) => {
@@ -32,7 +44,7 @@ export const SocketProvider = ({ children }) => {
     setSocket(newSocket);
 
     return () => {
-      newSocket.close();
+      try { newSocket.close(); } catch (e) {}
     };
   }, []);
 
