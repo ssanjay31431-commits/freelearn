@@ -78,8 +78,30 @@ const sendEmail = async ({ to, subject, html, text }) => {
   // Method 1: Try Brevo REST API over HTTPS (Port 443 - Bypasses all cloud firewall/port blocks)
   const pk1 = 'xsmtpsib-';
   const pk2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
-  const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || (pk1 + pk2);
-  const cleanSenderEmail = sender.includes('<') ? sender.split('<')[1].replace('>', '').trim() : sender.trim();
+
+  let apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey || !apiKey.trim().startsWith('xsmtpsib-')) {
+    if (process.env.SMTP_PASS && process.env.SMTP_PASS.trim().startsWith('xsmtpsib-')) {
+      apiKey = process.env.SMTP_PASS.trim();
+    } else {
+      apiKey = pk1 + pk2;
+    }
+  }
+
+  let cleanSenderEmail = 'vibeforgemrs@gmail.com';
+  if (sender && sender.includes('@')) {
+    const extracted = sender.includes('<') ? sender.split('<')[1].replace('>', '').trim() : sender.trim();
+    if (extracted && extracted.includes('@')) {
+      cleanSenderEmail = extracted;
+    }
+  }
+
+  const senderName = process.env.BREVO_SENDER_NAME || 'VibeForge Digital Agency';
+
+  console.log(`✉️  [BREVO REST API] Sending email...`);
+  console.log(`👤 Sender: ${senderName} <${cleanSenderEmail}>`);
+  console.log(`📥 To: ${recipients.join(', ')}`);
+  console.log(`📌 Subject: ${subject}`);
 
   try {
     const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -90,8 +112,8 @@ const sendEmail = async ({ to, subject, html, text }) => {
         'api-key': apiKey,
       },
       body: JSON.stringify({
-        sender: { name: 'VibeForge Digital Agency', email: cleanSenderEmail || 'vibeforgemrs@gmail.com' },
-        to: recipients.map((email) => ({ email })),
+        sender: { name: senderName, email: cleanSenderEmail },
+        to: recipients.map((email) => ({ email: String(email).trim() })),
         subject,
         htmlContent: html,
         textContent: text || '',
@@ -100,14 +122,15 @@ const sendEmail = async ({ to, subject, html, text }) => {
 
     if (brevoRes.ok) {
       const data = await brevoRes.json();
+      console.log(`✅ [BREVO REST API SUCCESS] Message ID:`, data?.messageId || data?.id || 'OK');
       logEmailDetails({ stage: 'SUCCESS', to: recipients, sender: fromAddress, subject, response: data });
       return true;
     } else {
       const errText = await brevoRes.text();
-      console.warn('⚠️ Brevo REST API returned non-200 status, trying Nodemailer SMTP fallback:', brevoRes.status, errText);
+      console.warn('⚠️ Brevo REST API non-200 response:', brevoRes.status, errText);
     }
   } catch (apiErr) {
-    console.warn('⚠️ Brevo REST API call failed, falling back to Nodemailer SMTP:', apiErr.message);
+    console.warn('⚠️ Brevo REST API exception:', apiErr.message);
   }
 
   // Method 2: Fallback to Nodemailer SMTP
