@@ -510,9 +510,6 @@ const updateOrderStatus = async (req, res) => {
       statusTimeline: targetOrder.statusTimeline
     }).catch(() => {});
 
-    // Send professional status update email via Brevo SMTP
-    sendStatusUpdate(targetOrder, targetOrder.statusTimeline || 'Updated').catch(() => {});
-
     // Log Audit
     logAudit({
       req,
