@@ -78,7 +78,10 @@ const createOrder = async (req, res) => {
       amountDue = totalAmount;
     }
 
-    const orderId = 'VF-' + Math.floor(100000 + Math.random() * 900000);
+    // Prefer client-provided orderId when available to keep Firestore and MongoDB in sync
+    const orderId = req.body.orderId && String(req.body.orderId).trim()
+      ? String(req.body.orderId).trim()
+      : 'VF-' + Math.floor(100000 + Math.random() * 900000);
 
     const orderData = {
       orderId,
