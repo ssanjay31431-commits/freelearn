@@ -80,11 +80,11 @@ const sendEmail = async ({ to, subject, html, text }) => {
   const sender = getSenderAddress();
   const fromAddress = sender.includes('<') ? sender : `VibeForge <${sender}>`;
 
-  // Prefer Brevo REST API (HTTPS). This is preferred on serverless platforms (Vercel) and
-  // many PaaS providers where SMTP ports may be blocked.
-  const envApiKey = process.env.BREVO_API_KEY && process.env.BREVO_API_KEY.trim() ? process.env.BREVO_API_KEY.trim() : null;
-  const smtpPassKeyCandidate = process.env.SMTP_PASS && process.env.SMTP_PASS.trim().startsWith('xsmtpsib-') ? process.env.SMTP_PASS.trim() : null;
-  const apiKey = envApiKey || smtpPassKeyCandidate || null;
+  // Prefer Brevo REST API (HTTPS). This is recommended on serverless platforms where
+  // SMTP ports may be blocked. Use BREVO_API_KEY for REST; do not reuse SMTP_PASS here.
+  const brevoApiKey = process.env.BREVO_API_KEY && process.env.BREVO_API_KEY.trim() ? process.env.BREVO_API_KEY.trim() : null;
+  const smtpPass = process.env.SMTP_PASS && process.env.SMTP_PASS.trim() ? process.env.SMTP_PASS.trim() : null;
+  const apiKey = brevoApiKey || null;
 
   const cleanSenderEmail = (() => {
     let email = 'vibeforgemrs@gmail.com';
@@ -97,7 +97,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
 
   const senderName = process.env.BREVO_SENDER_NAME || 'VibeForge Digital Agency';
 
-  // Attempt REST API only if a BREVO key is available
+  // Attempt REST API only if a Brevo API key is available
   if (apiKey) {
     try {
       console.log(`✉️  [BREVO REST API] Sending email to ${recipients.join(', ')}...`);
@@ -134,7 +134,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
       logEmailDetails({ stage: 'EXCEPTION', to: recipients, sender: fromAddress, subject, error: apiErr });
     }
   } else {
-    console.warn('[BREVO REST API] No BREVO_API_KEY or xsmtpsib- key available in environment. Skipping REST API attempt.');
+    console.warn('[BREVO REST API] No BREVO_API_KEY available in environment. Skipping REST API attempt.');
   }
 
   // Fallback to SMTP via Nodemailer
