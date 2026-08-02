@@ -9,10 +9,11 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     const socketUrl = import.meta.env.VITE_SOCKET_URL
-      || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-        ? 'https://vibeforge-server.onrender.com'
-        : 'http://localhost:5000');
+      ? import.meta.env.VITE_SOCKET_URL.replace(/\/$/, '')
+      : 'https://vibeforge-hq68.onrender.com';
     const newSocket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
       autoConnect: true,
       reconnection: true
     });

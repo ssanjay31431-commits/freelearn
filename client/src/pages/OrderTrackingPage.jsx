@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Search, CheckCircle2, Clock, Download, Package, ArrowRight, ShieldCheck, QrCode, Copy, Check, XCircle, AlertTriangle, MessageCircle, Send, Sparkles, Mail, Loader2, X, AlertCircle } from 'lucide-react';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 import { getFirestoreOrderById, cancelFirestoreOrder, updateFirestoreOrderStatus } from '../firebase/dbService';
-
+import axiosClient from '../api/axiosClient';
 import { io } from 'socket.io-client';
 
 export const OrderTrackingPage = () => {
@@ -24,8 +24,15 @@ export const OrderTrackingPage = () => {
 
   // Real-time Socket.IO status listener
   useEffect(() => {
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-    const socket = io(socketUrl, { autoConnect: true, reconnection: true });
+    const socketUrl = import.meta.env.VITE_SOCKET_URL
+      ? import.meta.env.VITE_SOCKET_URL.replace(/\/$/, '')
+      : 'https://vibeforge-hq68.onrender.com';
+    const socket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      reconnection: true
+    });
 
     if (orderId) {
       socket.emit('join_order_room', orderId);
@@ -70,24 +77,22 @@ export const OrderTrackingPage = () => {
   const getCustomerWhatsAppUrl = (ord) => {
     const cleanPhone = (ord?.customerPhone || '').replace(/\D/g, '');
     const phoneFormatted = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone || '919943380320';
-    
-    const lines = [
-      "*VIBEFORGE ORDER CONFIRMATION*",
-      "----------------------------------",
-      `Dear *${ord?.customerName || 'Customer'}*,`,
-      "",
-      `Your order *#${ord?.orderId}* is CONFIRMED!`,
-      "",
-      `*Service:* ${ord?.items?.[0]?.title || 'VibeForge Service'}`,
-      `*Total Package Value:* Rs.${ord?.totalAmount || 0}`,
-      `*Amount Paid:* Rs.${ord?.amountPaid || 0}`,
-      `*Remaining Balance:* Rs.${ord?.amountDue || 0}`,
-      `*Status:* ${ord?.orderStatus || ord?.statusTimeline || 'Pending'}`,
-      "",
-      `*Track Live Production:* https://freelearn-seven.vercel.app/track?id=${ord?.orderId}`,
-      "----------------------------------",
-      "Thank you for choosing VibeForge Digital Agency!"
-    ];
+      const clientUrl = import.meta.env.VITE_CLIENT_URL || 'https://vibeforge.vercel.app';
+      
+      const lines = [
+        "*VIBEFORGE ORDER CONFIRMATION*",
+        "----------------------------------",
+        `Dear *${ord?.customerName || 'Customer'}*,`,
+        "",
+        `Your order *#${ord?.orderId}* is CONFIRMED!`,
+        "",
+        `*Service:* ${ord?.items?.[0]?.title || 'VibeForge Service'}`,
+        `*Total Package Value:* Rs.${ord?.totalAmount || 0}`,
+        `*Amount Paid:* Rs.${ord?.amountPaid || 0}`,
+        `*Remaining Balance:* Rs.${ord?.amountDue || 0}`,
+        `*Status:* ${ord?.orderStatus || ord?.statusTimeline || 'Pending'}`,
+        "",
+        `*Track Live Production:* ${clientUrl}/track?id=${ord?.orderId}`,
 
     return `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(lines.join("\n"))}`;
   };
@@ -144,129 +149,26 @@ export const OrderTrackingPage = () => {
     setShowEmailConfirmModal(false);
     setIsSendingEmail(true);
 
-    const k1 = 'xsmtpsib-';
-    const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
-    const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
-
-    const customerName = order.customerName || 'Valued Customer';
-    const targetOrderId = order.orderId;
-    const product = Array.isArray(order.items) && order.items.length > 0
-      ? order.items.map((i) => i.title || i.name).join(', ')
-      : order.product || 'VibeForge Digital Service';
-    const quantity = Array.isArray(order.items) && order.items.length > 0
-      ? order.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
-      : order.quantity || 1;
-    const amount = `₹${order.totalAmount || 0}`;
-
-    const textBody = `Hello ${customerName},
-
-Thank you for placing your order with VibeForge.
-
-Your order has been confirmed successfully.
-
-Order Details
-
-Order ID:
-${targetOrderId}
-
-Product:
-${product}
-
-Quantity:
-${quantity}
-
-Amount:
-${amount}
-
-Order Status:
-Confirmed
-
-Thank you for choosing VibeForge.
-
-Regards,
-
-VibeForge Team`;
-
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #0f172a;">
-        <h2 style="color: #4f46e5; margin-top: 0;">VibeForge Order Confirmation</h2>
-        <p>Hello <strong>${customerName}</strong>,</p>
-        <p>Thank you for placing your order with VibeForge.</p>
-        <p>Your order has been confirmed successfully.</p>
-        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-        <h3 style="color: #0f172a; margin-bottom: 12px;">Order Details</h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
-          <tr><td style="padding: 6px 0; color: #64748b; width: 140px;"><strong>Order ID:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${targetOrderId}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Product:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${product}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Quantity:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${quantity}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Amount:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${amount}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Order Status:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #16a34a;">Confirmed</td></tr>
-        </table>
-        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-        <p>Thank you for choosing VibeForge.</p>
-        <p style="margin-bottom: 0;">Regards,<br /><strong>VibeForge Team</strong></p>
-      </div>
-    `;
-
     let deliverySuccess = false;
     let errorMessage = '';
 
     try {
-      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': brevoApiKey,
-        },
-        body: JSON.stringify({
-          sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
-          to: [{ email: String(order.customerEmail).trim(), name: customerName }],
-          subject: 'VibeForge Order Confirmation',
-          htmlContent: htmlBody,
-          textContent: textBody,
-        }),
-      });
-
-      if (res.ok) {
+      const res = await axiosClient.post('/orders/send-confirmation', order);
+      if (res?.data?.success || res?.data?.emailStatus === 'Sent') {
         deliverySuccess = true;
       } else {
-        const errText = await res.text();
-        errorMessage = `Brevo REST API (${res.status}): ${errText}`;
+        errorMessage = res?.data?.message || 'Server did not confirm email send.';
       }
-    } catch (e) {
-      errorMessage = e.message;
-    }
-
-    if (!deliverySuccess) {
-      const apiUrls = [
-        import.meta.env.VITE_API_BASE_URL,
-        import.meta.env.VITE_API_URL,
-        'https://vibeforge-server.onrender.com/api',
-        'https://freelearn.onrender.com/api',
-        'http://localhost:5000/api'
-      ].filter(Boolean);
-
-      for (const baseUrl of apiUrls) {
-        try {
-          const cleanUrl = baseUrl.replace(/\/$/, '');
-          const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(order),
-          });
-          if (res.ok) {
-            deliverySuccess = true;
-            break;
-          }
-        } catch (e) {}
-      }
+    } catch (err) {
+      errorMessage = err.response?.data?.message || err.message || 'Email send request failed.';
+      console.warn('[OrderTracking] Send confirmation email failed:', errorMessage);
     }
 
     setIsSendingEmail(false);
 
     if (deliverySuccess) {
       const nowStr = new Date().toISOString();
+      const targetOrderId = order.orderId;
       setOrder((prev) => (prev ? { ...prev, orderStatus: 'Confirmed', statusTimeline: 'Confirmed', emailStatus: 'Sent', emailSentAt: nowStr } : prev));
       try {
         await updateFirestoreOrderStatus(targetOrderId, 'Confirmed');

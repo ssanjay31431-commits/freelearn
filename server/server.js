@@ -13,11 +13,31 @@ const connectDB = require('./config/db');
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [
+  'https://adminvibeforge.vercel.app',
+  'https://vibeforge.vercel.app',
+  'https://freelearn-seven.vercel.app',
+  'https://vibeforge.netlify.app',
+  process.env.CLIENT_URL,
+  process.env.ADMIN_URL,
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'http://localhost:5000'
+].filter(Boolean);
+
 // Socket.IO Setup
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'), false);
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    credentials: true,
   }
 });
 
@@ -108,6 +128,7 @@ app.use('/api/quotes', require('./routes/quoteRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
+app.use('/api/debug', require('./routes/debugRoutes'));
 
 // 404 Route Handler
 app.use((req, res) => {

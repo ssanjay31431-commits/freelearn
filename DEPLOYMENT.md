@@ -24,7 +24,7 @@ Make sure your repository has the `server/` directory pushed to GitHub or GitLab
    - `JWT_SECRET`: A strong secret key
    - `CLIENT_URL`: Your Netlify App URL (e.g. `https://vibeforge.netlify.app`)
 5. Click **Create Web Service**.
-6. Once deployed, copy your Render server URL (e.g. `https://vibeforge-server.onrender.com`).
+6. Once deployed, copy your Render server URL (e.g. `https://vibeforge-hq68.onrender.com`).
 
 ---
 
@@ -38,7 +38,8 @@ Make sure your repository has the `server/` directory pushed to GitHub or GitLab
    - **Build command**: `npm run build`
    - **Publish directory**: `client/dist`
 4. In **Site Configuration** > **Environment variables**, add:
-   - `VITE_API_BASE_URL`: Your Render backend URL (e.g. `https://vibeforge-server.onrender.com`)
+   - `VITE_API_URL`: Your Render backend URL (e.g. `https://vibeforge-hq68.onrender.com`)
+   - `VITE_API_BASE_URL`: Optional backward-compatible alias for older deploy scripts
 5. Click **Deploy Site**.
 
 ---

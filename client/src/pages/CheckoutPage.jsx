@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CreditCard, ShieldCheck, CheckCircle2, Lock, ArrowRight, Zap, Building, Copy, Check, QrCode, MessageCircle, ExternalLink, Sparkles } from 'lucide-react';
 import { CartContext } from '../context/CartContext';
 import { AuthContext } from '../context/AuthContext';
+import axiosClient from '../api/axiosClient';
 import { createFirestoreOrder } from '../firebase/dbService';
 
 export const CheckoutPage = () => {
@@ -49,52 +50,20 @@ export const CheckoutPage = () => {
 
   // Pre-warm / Wake up Render backend server in advance when customer lands on Checkout Page
   useEffect(() => {
-    const apiUrls = [
-      import.meta.env.VITE_API_BASE_URL,
-      import.meta.env.VITE_API_URL,
-      'https://vibeforge-server.onrender.com/api',
-      'https://freelearn.onrender.com/api'
-    ].filter(Boolean);
-
-    apiUrls.forEach((baseUrl) => {
-      try {
-        const cleanUrl = baseUrl.replace(/\/$/, '');
-        fetch(`${cleanUrl}/orders`, { method: 'GET' }).catch(() => {});
-      } catch (e) {}
-    });
+    if (import.meta.env.VITE_API_URL) {
+      axiosClient.get('/orders').catch(() => {});
+    }
   }, []);
 
   const saveOrderToMongoDB = async (orderPayload) => {
-    const apiUrls = [
-      import.meta.env.VITE_API_BASE_URL,
-      import.meta.env.VITE_API_URL,
-      'https://vibeforge-server.onrender.com/api',
-      'https://freelearn.onrender.com/api',
-      'http://localhost:5000/api'
-    ].filter(Boolean);
-
-    for (const baseUrl of apiUrls) {
-      try {
-        const cleanUrl = baseUrl.replace(/\/$/, '');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        const res = await fetch(`${cleanUrl}/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderPayload),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          console.log('✅ Saved order in MongoDB. No customer email was sent automatically:', cleanUrl, data);
-          return data;
-        }
-      } catch (e) {
-        console.warn(`[MongoDB Save Attempt] Post to ${baseUrl} failed:`, e.message);
+    try {
+      const res = await axiosClient.post('/orders', orderPayload);
+      if (res?.data) {
+        console.log('✅ Saved order in MongoDB. No customer email was sent automatically.', res.data);
+        return res.data;
       }
+    } catch (e) {
+      console.warn('[MongoDB Save Attempt] Backend order post failed:', e.message || e);
     }
     return null;
   };

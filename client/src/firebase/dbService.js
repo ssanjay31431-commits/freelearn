@@ -13,6 +13,7 @@ import {
   orderBy,
   serverTimestamp
 } from './config';
+import axiosClient from '../api/axiosClient';
 
 // Pre-seeded services catalog for instant rendering
 export const DEFAULT_SERVICES = [
@@ -111,37 +112,15 @@ export const createFirestoreOrder = async (orderData) => {
   };
 
   // 1. Post to Express API Backend to store in MongoDB Atlas & trigger Brevo SMTP emails
-  const apiUrls = [
-    import.meta.env.VITE_API_BASE_URL,
-    import.meta.env.VITE_API_URL,
-    'https://vibeforge-server.onrender.com/api',
-    'https://freelearn.onrender.com/api',
-    'http://localhost:5000/api'
-  ].filter(Boolean);
-
   let serverOrder = null;
-  for (const baseUrl of apiUrls) {
-    try {
-      const cleanUrl = baseUrl.replace(/\/$/, '');
-      const token = localStorage.getItem('vf_token') || '';
-      const res = await fetch(`${cleanUrl}/orders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify(fullOrder)
-      });
-      if (res.ok) {
-        serverOrder = await res.json();
-        if (serverOrder && serverOrder.orderId) {
-          console.log('✅ Express Backend API created order & dispatched Brevo email:', serverOrder.orderId);
-          break;
-        }
-      }
-    } catch (e) {
-      console.warn(`[API Order Dispatch] Attempt to post to ${baseUrl} failed:`, e.message);
+  try {
+    const res = await axiosClient.post('/orders', fullOrder);
+    if (res?.data?.orderId) {
+      serverOrder = res.data;
+      console.log('✅ Express Backend API created order & dispatched Brevo email:', serverOrder.orderId);
     }
+  } catch (e) {
+    console.warn('[API Order Dispatch] Backend order post failed:', e.message || e);
   }
 
   // 2. Save to Firestore for client UI sync
@@ -189,14 +168,10 @@ export const getUserFirestoreOrders = async (userId, userEmail) => {
 export const getFirestoreOrderById = async (orderId) => {
   // 1. Try Backend Express API first for latest status
   try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-    const res = await fetch(`${apiBase}/orders/${orderId}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.orderId) return data;
-    }
+    const res = await axiosClient.get(`/orders/${orderId}`);
+    if (res?.data?.orderId) return res.data;
   } catch (apiErr) {
-    console.warn('Backend API getOrderById Fallback:', apiErr.message);
+    console.warn('Backend API getOrderById Fallback:', apiErr.message || apiErr);
   }
 
   // 2. Try Firestore

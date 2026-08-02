@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import axiosClient from '../api/axiosClient';
 import OrderTimeline from '../components/orders/OrderTimeline';
 import OrderInvoiceModal from '../components/orders/OrderInvoiceModal';
@@ -89,38 +88,27 @@ export default function Orders() {
     setSendingEmailOrderId(order.orderId);
     setFeedback({ type: '', message: '' });
 
-    const fallbackUrls = [
-      axiosClient.defaults.baseURL,
-      import.meta.env.VITE_API_URL,
-      import.meta.env.VITE_API_BASE_URL,
-      'https://vibeforge-server.onrender.com/api',
-      'https://freelearn.onrender.com/api',
-    ]
-      .filter(Boolean)
-      .map((url) => url.replace(/\/$/, ''))
-      .filter((value, index, self) => self.indexOf(value) === index);
-
-    let lastError = null;
     let payload = null;
-    for (const baseUrl of fallbackUrls) {
-      try {
-        const fullUrl = `${baseUrl}/admin/orders/${order.orderId}/send-confirmation-email`;
-        const res = await axios.post(fullUrl, order, {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: axiosClient.defaults.headers.common['Authorization'] || '',
-          },
-        });
-
-        payload = res?.data || {};
-        if (payload?.success || payload?.emailStatus === 'Sent') {
-          break;
-        }
-
-        lastError = new Error(payload?.message || `API response from ${fullUrl} did not confirm email send`);
-      } catch (err) {
-        lastError = err;
-      }
+    try {
+      const res = await axiosClient.post(`/admin/orders/${order.orderId}/send-confirmation-email`, order);
+      payload = res?.data || {};
+    } catch (err) {
+      const message = err.response?.data?.message || err.message || 'Failed to send confirmation email.';
+      setOrders((prev) =>
+        prev.map((item) =>
+          item.orderId === order.orderId
+            ? {
+                ...item,
+                orderStatus: 'Pending',
+                statusTimeline: 'Pending',
+                emailStatus: 'Failed',
+              }
+            : item
+        )
+      );
+      setFeedback({ type: 'error', message });
+      setSendingEmailOrderId(null);
+      return;
     }
 
     if (payload?.success || payload?.emailStatus === 'Sent') {
@@ -140,7 +128,7 @@ export default function Orders() {
       );
       setFeedback({ type: 'success', message: 'Confirmation email sent successfully.' });
     } else {
-      const message = lastError?.response?.data?.message || lastError?.message || 'Failed to send confirmation email.';
+      const message = payload?.message || 'Failed to send confirmation email.';
       setOrders((prev) =>
         prev.map((item) =>
           item.orderId === order.orderId

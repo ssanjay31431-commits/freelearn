@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DollarSign, Package, Users, FileText, CheckCircle2, Clock, Settings, LogOut, ArrowRight, RefreshCw, Mail, Send, Check, AlertCircle, X, Loader2, Download, Eye } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
+import axiosClient from '../api/axiosClient';
 import { getAllFirestoreOrders, getAllFirestoreQuotes, updateFirestoreOrderStatus } from '../firebase/dbService';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 
@@ -83,140 +84,16 @@ export const AdminDashboardPage = () => {
     let deliverySuccess = false;
     let errorMessage = '';
 
-    const apiUrls = [
-      import.meta.env.VITE_API_BASE_URL,
-      import.meta.env.VITE_API_URL,
-      'https://vibeforge-server.onrender.com/api',
-      'https://freelearn.onrender.com/api',
-      'http://localhost:5000/api'
-    ].filter(Boolean);
-
-    const token = localStorage.getItem('vf_token') || '';
-
-    // 1. Call exact backend endpoint: POST /api/admin/orders/:id/send-confirmation-email
-    for (const baseUrl of apiUrls) {
-      try {
-        const cleanUrl = baseUrl.replace(/\/$/, '');
-        const targetEndpoint = cleanUrl.endsWith('/admin')
-          ? `${cleanUrl}/orders/${ord.orderId}/send-confirmation-email`
-          : `${cleanUrl}/admin/orders/${ord.orderId}/send-confirmation-email`;
-
-        const res = await fetch(targetEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(ord),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data && (data.success || data.emailStatus === 'Sent')) {
-            deliverySuccess = true;
-            break;
-          }
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          errorMessage = errData.message || `API error ${res.status}`;
-        }
-      } catch (e) {
-        console.warn(`[Backend API] POST /admin/orders/${ord.orderId}/send-confirmation-email failed:`, e.message);
+    try {
+      const res = await axiosClient.post(`/admin/orders/${ord.orderId}/send-confirmation-email`, ord);
+      if (res?.data?.success || res?.data?.emailStatus === 'Sent') {
+        deliverySuccess = true;
+      } else {
+        errorMessage = res?.data?.message || 'Backend did not confirm email send.';
       }
-    }
-
-    // 2. Direct Brevo SMTP API fallback
-    if (!deliverySuccess) {
-      const k1 = 'xsmtpsib-';
-      const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
-      const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
-
-      const customerName = ord.customerName || 'Valued Customer';
-      const orderId = ord.orderId;
-      const product = Array.isArray(ord.items) && ord.items.length > 0
-        ? ord.items.map((i) => i.title || i.name).join(', ')
-        : ord.product || 'VibeForge Digital Service';
-      const quantity = Array.isArray(ord.items) && ord.items.length > 0
-        ? ord.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
-        : ord.quantity || 1;
-      const amount = `₹${ord.totalAmount || 0}`;
-
-      const textBody = `Hello ${customerName},
-
-Thank you for placing your order with VibeForge.
-
-Your order has been confirmed successfully.
-
-Order Details
-
-Order ID:
-${orderId}
-
-Product:
-${product}
-
-Quantity:
-${quantity}
-
-Amount:
-${amount}
-
-Order Status:
-Confirmed
-
-Thank you for choosing VibeForge.
-
-Regards,
-
-VibeForge Team`;
-
-      const htmlBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #0f172a;">
-          <h2 style="color: #4f46e5; margin-top: 0;">VibeForge Order Confirmation</h2>
-          <p>Hello <strong>${customerName}</strong>,</p>
-          <p>Thank you for placing your order with VibeForge.</p>
-          <p>Your order has been confirmed successfully.</p>
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-          <h3 style="color: #0f172a; margin-bottom: 12px;">Order Details</h3>
-          <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
-            <tr><td style="padding: 6px 0; color: #64748b; width: 140px;"><strong>Order ID:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${orderId}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Product:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${product}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Quantity:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${quantity}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Amount:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${amount}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Order Status:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #16a34a;">Confirmed</td></tr>
-          </table>
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-          <p>Thank you for choosing VibeForge.</p>
-          <p style="margin-bottom: 0;">Regards,<br /><strong>VibeForge Team</strong></p>
-        </div>
-      `;
-
-      try {
-        const directRes = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'api-key': brevoApiKey,
-          },
-          body: JSON.stringify({
-            sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
-            to: [{ email: String(ord.customerEmail).trim(), name: customerName }],
-            subject: 'VibeForge Order Confirmation',
-            htmlContent: htmlBody,
-            textContent: textBody,
-          }),
-        });
-
-        if (directRes.ok) {
-          deliverySuccess = true;
-        } else {
-          const errText = await directRes.text();
-          errorMessage = `Brevo API (${directRes.status}): ${errText}`;
-        }
-      } catch (apiErr) {
-        errorMessage = apiErr.message;
-      }
+    } catch (e) {
+      errorMessage = e.response?.data?.message || e.message || 'Email send request failed.';
+      console.warn('[AdminDashboard] send confirmation email failed:', errorMessage);
     }
 
     setSendingEmailOrderId(null);

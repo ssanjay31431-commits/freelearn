@@ -15,6 +15,8 @@ services:
         generateValue: true
       - key: CLIENT_URL
         sync: false
+      - key: ADMIN_URL
+        sync: false
       - key: SMTP_HOST
         value: smtp-relay.brevo.com
       - key: SMTP_PORT

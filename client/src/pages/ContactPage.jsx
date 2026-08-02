@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, MessageCircle, Clock, CheckCircle2, Send, Loader2, Info, Globe, ExternalLink } from 'lucide-react';
-import axios from 'axios';
+import axiosClient from '../api/axiosClient';
 
 export const ContactPage = () => {
   const [name, setName] = useState('');
@@ -68,7 +68,7 @@ export const ContactPage = () => {
 
       // Record in local backend database as well
       try {
-        await axios.post('/api/contact/send', { name, email, message });
+        await axiosClient.post('/contact/send', { name, email, message });
       } catch (backendErr) {}
 
       setSubmitted(true);
