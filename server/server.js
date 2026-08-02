@@ -34,12 +34,29 @@ const allowedOrigins = [
   'http://localhost:5000'
 ].filter(Boolean);
 
+const isPreviewOrigin = (origin) => {
+  if (!origin) return false;
+  return [
+    /https:\/\/[\w-]+\.vercel\.app$/,
+    /https:\/\/[\w-]+\.netlify\.app$/,
+    /https:\/\/[\w-]+\.onrender\.com$/
+  ].some((pattern) => pattern.test(origin));
+};
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (allowedOrigins.some((o) => origin.startsWith(o))) return true;
+  if (isPreviewOrigin(origin)) return true;
+  return false;
+};
+
 console.log('Allowed Origins:', allowedOrigins);
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some(o => origin && origin.startsWith(o)) || process.env.NODE_ENV !== 'production') {
+      if (isAllowedOrigin(origin) || process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'), false);
