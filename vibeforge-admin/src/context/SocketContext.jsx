@@ -8,7 +8,10 @@ export const SocketProvider = ({ children }) => {
   const [liveNotifications, setLiveNotifications] = useState([]);
 
   useEffect(() => {
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+    const socketUrl = import.meta.env.VITE_SOCKET_URL
+      || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+        ? 'https://vibeforge-server.onrender.com'
+        : 'http://localhost:5000');
     const newSocket = io(socketUrl, {
       autoConnect: true,
       reconnection: true

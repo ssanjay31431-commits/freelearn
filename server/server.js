@@ -41,13 +41,6 @@ connectDB();
 // Security & Rate Limiting Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 mins
-  max: 300, // Limit each IP to 300 requests per window
-  message: { message: 'Too many requests from this IP, please try again after 15 minutes.' }
-});
-app.use('/api/', limiter);
-
 // CORS
 const allowedOrigins = [
   'https://adminvibeforge.vercel.app',
@@ -68,14 +61,24 @@ app.use(
       if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some(o => origin && origin.startsWith(o)) || process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
-        callback(null, true);
+        callback(new Error('Not allowed by CORS'), false);
       }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    optionsSuccessStatus: 200
   })
 );
+
+app.options('*', cors());
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 mins
+  max: 300, // Limit each IP to 300 requests per window
+  message: { message: 'Too many requests from this IP, please try again after 15 minutes.' }
+});
+app.use('/api/', limiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import axiosClient from '../api/axiosClient';
 import OrderTimeline from '../components/orders/OrderTimeline';
 import OrderInvoiceModal from '../components/orders/OrderInvoiceModal';
@@ -88,31 +89,58 @@ export default function Orders() {
     setSendingEmailOrderId(order.orderId);
     setFeedback({ type: '', message: '' });
 
-    try {
-      const res = await axiosClient.post(`/admin/orders/${order.orderId}/send-confirmation-email`, order);
-      const payload = res?.data || {};
+    const fallbackUrls = [
+      axiosClient.defaults.baseURL,
+      import.meta.env.VITE_API_URL,
+      import.meta.env.VITE_API_BASE_URL,
+      'https://vibeforge-server.onrender.com/api',
+      'https://freelearn.onrender.com/api',
+    ]
+      .filter(Boolean)
+      .map((url) => url.replace(/\/$/, ''))
+      .filter((value, index, self) => self.indexOf(value) === index);
 
-      if (payload?.success || payload?.emailStatus === 'Sent') {
-        const sentAt = payload?.emailSentAt || new Date().toISOString();
-        setOrders((prev) =>
-          prev.map((item) =>
-            item.orderId === order.orderId
-              ? {
-                  ...item,
-                  orderStatus: 'Confirmed',
-                  statusTimeline: 'Confirmed',
-                  emailStatus: payload.emailStatus || 'Sent',
-                  emailSentAt: sentAt,
-                }
-              : item
-          )
-        );
-        setFeedback({ type: 'success', message: 'Confirmation email sent successfully.' });
-      } else {
-        throw new Error(payload?.message || 'Unable to send confirmation email.');
+    let lastError = null;
+    let payload = null;
+    for (const baseUrl of fallbackUrls) {
+      try {
+        const fullUrl = `${baseUrl}/admin/orders/${order.orderId}/send-confirmation-email`;
+        const res = await axios.post(fullUrl, order, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: axiosClient.defaults.headers.common['Authorization'] || '',
+          },
+        });
+
+        payload = res?.data || {};
+        if (payload?.success || payload?.emailStatus === 'Sent') {
+          break;
+        }
+
+        lastError = new Error(payload?.message || `API response from ${fullUrl} did not confirm email send`);
+      } catch (err) {
+        lastError = err;
       }
-    } catch (err) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to send confirmation email.';
+    }
+
+    if (payload?.success || payload?.emailStatus === 'Sent') {
+      const sentAt = payload?.emailSentAt || new Date().toISOString();
+      setOrders((prev) =>
+        prev.map((item) =>
+          item.orderId === order.orderId
+            ? {
+                ...item,
+                orderStatus: 'Confirmed',
+                statusTimeline: 'Confirmed',
+                emailStatus: payload.emailStatus || 'Sent',
+                emailSentAt: sentAt,
+              }
+            : item
+        )
+      );
+      setFeedback({ type: 'success', message: 'Confirmation email sent successfully.' });
+    } else {
+      const message = lastError?.response?.data?.message || lastError?.message || 'Failed to send confirmation email.';
       setOrders((prev) =>
         prev.map((item) =>
           item.orderId === order.orderId
@@ -126,9 +154,9 @@ export default function Orders() {
         )
       );
       setFeedback({ type: 'error', message });
-    } finally {
-      setSendingEmailOrderId(null);
     }
+
+    setSendingEmailOrderId(null);
   };
 
   const filteredOrders = orders.filter((o) => {
