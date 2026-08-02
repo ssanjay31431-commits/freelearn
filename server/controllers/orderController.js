@@ -14,17 +14,6 @@ const syncMockOrdersStore = () => {
 
 const dispatchOrderEmails = async (orderData) => {
   try {
-    const customerSent = await sendOrderConfirmation(orderData);
-    if (customerSent) {
-      console.log('✅ Customer Order Confirmation Email Sent');
-    } else {
-      console.log('❌ Customer Order Confirmation Email Delivery Failed');
-    }
-  } catch (error) {
-    console.error('❌ Customer Email Exception:', error?.message || error);
-  }
-
-  try {
     const adminSent = await sendAdminNotification({
       subject: '🚀 New Order Received',
       customerName: orderData.customerName,
@@ -166,12 +155,12 @@ const notifyAdminOrder = async (req, res) => {
   console.log(`💳 Amount Paid: ₹${amountPaid}`);
   console.log(`======================================================\n`);
 
-  // Dispatch emails independently
+  // Notify admin only; no customer confirmation email is sent automatically.
   await dispatchOrderEmails(orderData);
 
   res.json({
     success: true,
-    message: 'Automated Order Email & WhatsApp Notifications Dispatched Successfully',
+    message: 'Admin order notification dispatched successfully.',
     adminEmail: 'vibeforge@gmail.com',
     adminPhone: '9943380320',
   });

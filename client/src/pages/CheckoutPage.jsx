@@ -64,95 +64,6 @@ export const CheckoutPage = () => {
     });
   }, []);
 
-  const sendCustomerConfirmationEmail = async (order) => {
-    if (!order || !order.customerEmail) return;
-
-    const k1 = 'xsmtpsib-';
-    const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
-    const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
-    try {
-      const itemsListHtml = (order.items || [])
-        .map((i) => `<div style="padding:8px 0;border-bottom:1px dashed #cbd5e1;display:flex;justify-content:space-between;"><span>${i.title || i.name} (x${i.quantity || 1})</span><strong>₹${i.price || 0}</strong></div>`)
-        .join('') || '<div>VibeForge Digital Service</div>';
-
-      const htmlContent = `
-        <div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;padding:24px;background:#f8fafc;border-radius:20px;">
-          <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:28px;border-radius:16px;color:#ffffff;text-align:center;">
-            <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;">🎉 Order Confirmed!</h1>
-            <p style="margin:0;font-size:14px;opacity:0.9;">VibeForge Digital Agency</p>
-          </div>
-          <div style="background:#ffffff;padding:24px;border-radius:16px;margin-top:16px;border:1px solid #e2e8f0;color:#0f172a;">
-            <p style="font-size:15px;margin:0 0 16px;">Hello <strong>${order.customerName || 'Valued Customer'}</strong>,</p>
-            <p style="font-size:14px;color:#475569;margin:0 0 18px;">Thank you for your order! We have received your booking and our engineering team is getting started immediately.</p>
-            
-            <div style="background:#f1f5f9;padding:16px;border-radius:12px;margin-bottom:20px;font-size:14px;">
-              <div style="margin-bottom:6px;"><strong>Order ID:</strong> #${order.orderId || 'VF-ORDER'}</div>
-              <div style="margin-bottom:6px;"><strong>Total Package Value:</strong> ₹${order.totalAmount || order.grandTotal || 0}</div>
-              <div style="margin-bottom:6px;color:#16a34a;"><strong>Amount Paid:</strong> ₹${order.amountPaid || 0}</div>
-              <div style="color:#4f46e5;"><strong>Payment Choice:</strong> ${order.paymentStatus || 'Confirmed'}</div>
-            </div>
-
-            <h3 style="font-size:15px;margin:0 0 12px;color:#0f172a;">Ordered Services:</h3>
-            <div style="margin-bottom:24px;">${itemsListHtml}</div>
-
-            <div style="text-align:center;margin-top:28px;">
-              <a href="https://freelearn-seven.vercel.app/track?id=${order.orderId || ''}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:14px 32px;border-radius:999px;">Track Order Status Live →</a>
-            </div>
-          </div>
-          <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:20px;">
-            Need help? Reply to this email or contact us at vibeforgemrs@gmail.com
-          </div>
-        </div>
-      `;
-
-      const directRes = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': brevoApiKey,
-        },
-        body: JSON.stringify({
-          sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
-          to: [{ email: String(order.customerEmail).trim(), name: order.customerName || 'Customer' }],
-          subject: `🎉 Order Confirmed | VibeForge Order #${order.orderId || ''}`,
-          htmlContent: htmlContent,
-        }),
-      });
-
-      if (directRes.ok) {
-        console.log('✅ Brevo REST API email delivered directly to customer:', order.customerEmail);
-        return;
-      }
-    } catch (directErr) {
-      console.warn('Direct Brevo API call exception, using backend fallback:', directErr.message);
-    }
-
-    // 2. Fallback via backend server endpoints
-    const apiUrls = [
-      import.meta.env.VITE_API_BASE_URL,
-      import.meta.env.VITE_API_URL,
-      'https://vibeforge-server.onrender.com/api',
-      'https://freelearn.onrender.com/api',
-      'http://localhost:5000/api'
-    ].filter(Boolean);
-
-    for (const baseUrl of apiUrls) {
-      try {
-        const cleanUrl = baseUrl.replace(/\/$/, '');
-        const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(order),
-        });
-        if (res.ok) {
-          console.log('✅ Brevo customer email sent via backend:', cleanUrl);
-          break;
-        }
-      } catch (e) {}
-    }
-  };
-
   const saveOrderToMongoDB = async (orderPayload) => {
     const apiUrls = [
       import.meta.env.VITE_API_BASE_URL,
@@ -178,7 +89,7 @@ export const CheckoutPage = () => {
 
         if (res.ok) {
           const data = await res.json();
-          console.log('✅ Saved order in MongoDB & dispatched Brevo email via backend:', cleanUrl, data);
+          console.log('✅ Saved order in MongoDB. No customer email was sent automatically:', cleanUrl, data);
           return data;
         }
       } catch (e) {
