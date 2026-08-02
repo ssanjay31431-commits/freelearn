@@ -13,48 +13,6 @@ const connectDB = require('./config/db');
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = [
-  'https://adminvibeforge.vercel.app',
-  'https://vibeforge.vercel.app',
-  'https://freelearn-seven.vercel.app',
-  'https://vibeforge.netlify.app',
-  process.env.CLIENT_URL,
-  process.env.ADMIN_URL,
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:3000',
-  'http://localhost:5000'
-].filter(Boolean);
-
-// Socket.IO Setup
-const io = new Server(server, {
-  cors: {
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'), false);
-      }
-    },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    credentials: true,
-  }
-});
-
-app.set('io', io);
-
-io.on('connection', (socket) => {
-  console.log(`⚡ Socket Client Connected: ${socket.id}`);
-  socket.on('join_order_room', (orderId) => {
-    socket.join(`order_${orderId}`);
-    console.log(`Socket ${socket.id} joined room: order_${orderId}`);
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`🔌 Socket Client Disconnected: ${socket.id}`);
-  });
-});
-
 // Connect Database
 connectDB();
 
@@ -67,6 +25,7 @@ const allowedOrigins = [
   'https://vibeforge.vercel.app',
   'https://freelearn-seven.vercel.app',
   'https://vibeforge.netlify.app',
+  'https://vibeforge-hq68.onrender.com', // Render production URL
   process.env.CLIENT_URL,
   process.env.ADMIN_URL,
   'http://localhost:5173',
@@ -74,6 +33,8 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5000'
 ].filter(Boolean);
+
+console.log('Allowed Origins:', allowedOrigins);
 
 app.use(
   cors({
@@ -102,6 +63,37 @@ app.use('/api/', limiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Socket.IO Setup - attach to the HTTP server and enforce CORS using allowedOrigins
+const io = new Server(server, {
+  path: '/socket.io',
+  cors: {
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some(o => origin && origin.startsWith(o)) || process.env.NODE_ENV !== 'production') {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'), false);
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    credentials: true
+  },
+  transports: ['websocket', 'polling'],
+});
+
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  console.log(`⚡ Socket Client Connected: ${socket.id}`);
+  socket.on('join_order_room', (orderId) => {
+    socket.join(`order_${orderId}`);
+    console.log(`Socket ${socket.id} joined room: order_${orderId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Socket Client Disconnected: ${socket.id}`);
+  });
+});
 
 // Health Check
 app.get('/', (req, res) => {

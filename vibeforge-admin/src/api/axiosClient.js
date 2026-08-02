@@ -1,12 +1,21 @@
 import axios from 'axios';
 
 const getApiBaseUrl = () => {
+  // Prefer explicit Vite env var (set in Vercel). Remove trailing slash.
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL.replace(/\/$/, '');
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
-  return 'https://vibeforge-hq68.onrender.com';
+
+  // Default to production Render host if running in production browser context
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return 'https://vibeforge-hq68.onrender.com';
+  }
+
+  // Local development default
+  return 'http://localhost:5000';
 };
 
-const API_BASE_URL = `${getApiBaseUrl().replace(/\/$/, '')}/api`;
+const API_HOST = getApiBaseUrl();
+const API_BASE_URL = `${API_HOST.replace(/\/$/, '')}/api`;
 
 const axiosClient = axios.create({
   baseURL: API_BASE_URL,
