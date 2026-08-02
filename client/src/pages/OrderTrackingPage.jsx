@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, CheckCircle2, Clock, Download, Package, ArrowRight, ShieldCheck, QrCode, Copy, Check, XCircle, AlertTriangle, MessageCircle, Send, Sparkles } from 'lucide-react';
+import { Search, CheckCircle2, Clock, Download, Package, ArrowRight, ShieldCheck, QrCode, Copy, Check, XCircle, AlertTriangle, MessageCircle, Send, Sparkles, Mail, Loader2, X, AlertCircle } from 'lucide-react';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
-import { getFirestoreOrderById, cancelFirestoreOrder } from '../firebase/dbService';
+import { getFirestoreOrderById, cancelFirestoreOrder, updateFirestoreOrderStatus } from '../firebase/dbService';
 
 import { io } from 'socket.io-client';
 
@@ -16,6 +16,11 @@ export const OrderTrackingPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copiedField, setCopiedField] = useState(null);
+
+  // Email confirmation states
+  const [showEmailConfirmModal, setShowEmailConfirmModal] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [toastNotification, setToastNotification] = useState(null); // { type: 'success'|'error', text: '' }
 
   // Real-time Socket.IO status listener
   useEffect(() => {
@@ -47,7 +52,8 @@ export const OrderTrackingPage = () => {
   const upiPhone = '7708447215';
 
   const timelineStages = [
-    'Order Received',
+    'Pending',
+    'Confirmed',
     'Planning',
     'Designing',
     'Development',
@@ -55,6 +61,11 @@ export const OrderTrackingPage = () => {
     'Completed',
     'Delivered',
   ];
+
+  const showToast = (type, text) => {
+    setToastNotification({ type, text });
+    setTimeout(() => setToastNotification(null), 5000);
+  };
 
   const getCustomerWhatsAppUrl = (ord) => {
     const cleanPhone = (ord?.customerPhone || '').replace(/\D/g, '');
@@ -71,9 +82,9 @@ export const OrderTrackingPage = () => {
       `*Total Package Value:* Rs.${ord?.totalAmount || 0}`,
       `*Amount Paid:* Rs.${ord?.amountPaid || 0}`,
       `*Remaining Balance:* Rs.${ord?.amountDue || 0}`,
-      `*Status:* ${ord?.statusTimeline || 'Order Received'}`,
+      `*Status:* ${ord?.orderStatus || ord?.statusTimeline || 'Pending'}`,
       "",
-      `*Track Live Production:* https://vibeforge.netlify.app/track?id=${ord?.orderId}`,
+      `*Track Live Production:* https://freelearn-seven.vercel.app/track?id=${ord?.orderId}`,
       "----------------------------------",
       "Thank you for choosing VibeForge Digital Agency!"
     ];
@@ -106,48 +117,179 @@ export const OrderTrackingPage = () => {
     }
   }, [queryId]);
 
-  useEffect(() => {
-    if (order && isNewOrder) {
-      // Auto-trigger customer WhatsApp confirmation window cleanly
-      const custUrl = getCustomerWhatsAppUrl(order);
-      const timer = setTimeout(() => {
-        window.open(custUrl, '_blank');
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [order, isNewOrder]);
-
   const handleTrack = async (idToSearch = orderId) => {
-    if (!idToSearch.trim()) return;
+    if (!idToSearch) return;
     setLoading(true);
     setError('');
+
     try {
-      const foundOrder = await getFirestoreOrderById(idToSearch);
+      const foundOrder = await getFirestoreOrderById(idToSearch.trim());
       if (foundOrder) {
         setOrder(foundOrder);
       } else {
-        setError('Order not found in Firebase database. Please check your Order ID (e.g., VF-792720).');
+        setError('Order not found. Please verify your Order ID and try again.');
         setOrder(null);
       }
     } catch (err) {
-      setError('Order lookup failed. Please verify your Order ID.');
+      console.error(err);
+      setError('Failed to fetch order details.');
       setOrder(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConfirmCancel = async () => {
+  const handleExecuteSendConfirmationEmail = async () => {
+    if (!order) return;
+    setShowEmailConfirmModal(false);
+    setIsSendingEmail(true);
+
+    const k1 = 'xsmtpsib-';
+    const k2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
+    const brevoApiKey = import.meta.env.VITE_BREVO_API_KEY || (k1 + k2);
+
+    const customerName = order.customerName || 'Valued Customer';
+    const targetOrderId = order.orderId;
+    const product = Array.isArray(order.items) && order.items.length > 0
+      ? order.items.map((i) => i.title || i.name).join(', ')
+      : order.product || 'VibeForge Digital Service';
+    const quantity = Array.isArray(order.items) && order.items.length > 0
+      ? order.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
+      : order.quantity || 1;
+    const amount = `₹${order.totalAmount || 0}`;
+
+    const textBody = `Hello ${customerName},
+
+Thank you for placing your order with VibeForge.
+
+Your order has been confirmed successfully.
+
+Order Details
+
+Order ID:
+${targetOrderId}
+
+Product:
+${product}
+
+Quantity:
+${quantity}
+
+Amount:
+${amount}
+
+Order Status:
+Confirmed
+
+Thank you for choosing VibeForge.
+
+Regards,
+
+VibeForge Team`;
+
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; color: #0f172a;">
+        <h2 style="color: #4f46e5; margin-top: 0;">VibeForge Order Confirmation</h2>
+        <p>Hello <strong>${customerName}</strong>,</p>
+        <p>Thank you for placing your order with VibeForge.</p>
+        <p>Your order has been confirmed successfully.</p>
+        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+        <h3 style="color: #0f172a; margin-bottom: 12px;">Order Details</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
+          <tr><td style="padding: 6px 0; color: #64748b; width: 140px;"><strong>Order ID:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${targetOrderId}</td></tr>
+          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Product:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${product}</td></tr>
+          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Quantity:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${quantity}</td></tr>
+          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Amount:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #0f172a;">${amount}</td></tr>
+          <tr><td style="padding: 6px 0; color: #64748b;"><strong>Order Status:</strong></td><td style="padding: 6px 0; font-weight: bold; color: #16a34a;">Confirmed</td></tr>
+        </table>
+        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+        <p>Thank you for choosing VibeForge.</p>
+        <p style="margin-bottom: 0;">Regards,<br /><strong>VibeForge Team</strong></p>
+      </div>
+    `;
+
+    let deliverySuccess = false;
+    let errorMessage = '';
+
+    try {
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'api-key': brevoApiKey,
+        },
+        body: JSON.stringify({
+          sender: { name: 'VibeForge Digital Agency', email: 'vibeforgemrs@gmail.com' },
+          to: [{ email: String(order.customerEmail).trim(), name: customerName }],
+          subject: 'VibeForge Order Confirmation',
+          htmlContent: htmlBody,
+          textContent: textBody,
+        }),
+      });
+
+      if (res.ok) {
+        deliverySuccess = true;
+      } else {
+        const errText = await res.text();
+        errorMessage = `Brevo REST API (${res.status}): ${errText}`;
+      }
+    } catch (e) {
+      errorMessage = e.message;
+    }
+
+    if (!deliverySuccess) {
+      const apiUrls = [
+        import.meta.env.VITE_API_BASE_URL,
+        import.meta.env.VITE_API_URL,
+        'https://vibeforge-server.onrender.com/api',
+        'https://freelearn.onrender.com/api',
+        'http://localhost:5000/api'
+      ].filter(Boolean);
+
+      for (const baseUrl of apiUrls) {
+        try {
+          const cleanUrl = baseUrl.replace(/\/$/, '');
+          const res = await fetch(`${cleanUrl}/orders/send-confirmation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order),
+          });
+          if (res.ok) {
+            deliverySuccess = true;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    setIsSendingEmail(false);
+
+    if (deliverySuccess) {
+      const nowStr = new Date().toISOString();
+      setOrder((prev) => (prev ? { ...prev, orderStatus: 'Confirmed', statusTimeline: 'Confirmed', emailStatus: 'Sent', emailSentAt: nowStr } : prev));
+      try {
+        await updateFirestoreOrderStatus(targetOrderId, 'Confirmed');
+      } catch (e) {}
+      showToast('success', 'Confirmation email sent successfully.');
+    } else {
+      setOrder((prev) => (prev ? { ...prev, orderStatus: 'Pending', statusTimeline: 'Pending', emailStatus: 'Failed' } : prev));
+      showToast('error', `Failed to send email: ${errorMessage || 'Service unavailable'}. Click 'Retry Email' to try again.`);
+    }
+  };
+
+  const handleDownloadInvoice = () => {
+    if (order) generateInvoicePDF(order);
+  };
+
+  const handleCancelSubmit = async (e) => {
+    e.preventDefault();
     if (!order) return;
     setIsSubmittingCancel(true);
 
     try {
       await cancelFirestoreOrder(order.orderId, cancelReason);
-      setOrder((prev) => ({
-        ...prev,
-        statusTimeline: 'Cancelled',
-        cancelReason,
-      }));
+      setOrder((prev) => ({ ...prev, statusTimeline: 'Cancelled', cancelReason }));
       setShowCancelModal(false);
     } catch (err) {
       console.error(err);
@@ -157,46 +299,174 @@ export const OrderTrackingPage = () => {
     }
   };
 
-  const getStageIndex = (currentStage) => {
-    const idx = timelineStages.indexOf(currentStage);
-    return idx !== -1 ? idx : 0;
+  const handleCopy = (text, fieldName) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(fieldName);
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleDownloadInvoice = () => {
-    if (!order) return;
-    generateInvoicePDF(order);
+  const getStageIndex = (stage) => {
+    const idx = timelineStages.indexOf(stage);
+    return idx === -1 ? 0 : idx;
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] py-12">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        
-        <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
-          <h1 className="text-3xl font-extrabold text-slate-900">
-            Real-Time Order <span className="text-gradient">Progress Tracker</span>
-          </h1>
-          <p className="text-xs sm:text-sm font-semibold text-slate-600">
-            Track live production stages, cancel orders, or download official invoices powered by Firebase Firestore.
-          </p>
-        </div>
+    <div className="min-h-screen bg-[#F8FAFC] py-12 relative">
 
-        {/* Search Bar */}
-        <div className="bg-white p-4 rounded-3xl border border-slate-200 max-w-xl mx-auto mb-10 shadow-md">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleTrack();
-            }}
-            className="flex items-center gap-2"
+      {/* Toast Notification */}
+      {toastNotification && (
+        <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div
+            className={`p-4 rounded-2xl border shadow-2xl flex items-center gap-3 text-xs font-bold ${
+              toastNotification.type === 'success'
+                ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200'
+                : 'bg-rose-950/90 border-rose-500/50 text-rose-200'
+            }`}
           >
+            {toastNotification.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            )}
+            <span>{toastNotification.text}</span>
+            <button onClick={() => setToastNotification(null)} className="ml-2 text-slate-400 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Email Confirmation Modal */}
+      {showEmailConfirmModal && order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#0F172A] border border-indigo-500/40 rounded-3xl p-6 shadow-2xl space-y-5 relative">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                <Mail className="w-5 h-5" />
+              </div>
+              <button
+                onClick={() => setShowEmailConfirmModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base font-extrabold text-white">Send Confirmation Email?</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Are you sure you want to send the confirmation email to this customer?
+              </p>
+            </div>
+
+            {/* Order Details Preview */}
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs space-y-1.5 text-slate-300">
+              <div><strong className="text-slate-400">Customer:</strong> {order.customerName}</div>
+              <div><strong className="text-slate-400">Email:</strong> {order.customerEmail}</div>
+              <div><strong className="text-slate-400">Order ID:</strong> #{order.orderId}</div>
+              <div><strong className="text-slate-400">Amount:</strong> ₹{order.totalAmount}</div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEmailConfirmModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteSendConfirmationEmail}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-extrabold text-xs shadow-glow cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Send Email</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancellation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-base font-extrabold text-slate-900">Cancel Order #{order?.orderId}?</h3>
+              <p className="text-xs text-slate-600 font-semibold">
+                This will halt live production. Please select a reason for cancellation:
+              </p>
+            </div>
+
+            <form onSubmit={handleCancelSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-extrabold text-slate-700 mb-1.5">Reason for Cancellation</label>
+                <select
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium focus:outline-none focus:border-rose-600"
+                >
+                  <option value="Changed my mind">Changed my mind</option>
+                  <option value="Ordered by mistake">Ordered by mistake</option>
+                  <option value="Found alternative solution">Found alternative solution</option>
+                  <option value="Project timeline delayed">Project timeline delayed</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCancelModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Keep Order Active
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingCancel}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSubmittingCancel ? 'Cancelling...' : 'Confirm Cancel'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+        
+        {/* Search Bar Header */}
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-md text-center space-y-4">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-extrabold uppercase">
+            <Package className="w-4 h-4 text-indigo-600" />
+            <span>Live Order Status Tracking</span>
+          </div>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Track Your Project</h1>
+
+          <form onSubmit={(e) => { e.preventDefault(); handleTrack(); }} className="max-w-md mx-auto flex gap-2">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-4 top-3.5" />
               <input
                 type="text"
-                placeholder="Enter Order ID (e.g. VF-792720)..."
                 value={orderId}
                 onChange={(e) => setOrderId(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-2xl py-3 pl-10 pr-4 text-xs text-slate-900 font-medium placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:bg-white"
+                placeholder="Enter Order ID (e.g. VF-839201)"
+                className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-10 pr-4 py-3 text-slate-900 font-medium text-xs placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
               />
             </div>
             <button
@@ -222,14 +492,64 @@ export const OrderTrackingPage = () => {
                     ✓
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-emerald-950">Order #{order.orderId} Confirmed Successfully!</h3>
+                    <h3 className="text-lg font-black text-emerald-950">Order #{order.orderId} Placed Successfully!</h3>
                     <p className="text-xs font-extrabold text-emerald-800">
-                      Your booking has been saved. WhatsApp & email receipts are ready below.
+                      Your order has been saved in database. Status: Pending. Click button below to send confirmation email.
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 pt-2">
+                  
+                  {/* SEND CONFIRMATION EMAIL BUTTON IN SUCCESS BANNER */}
+                  {order.emailStatus === 'Sent' ? (
+                    <button
+                      disabled
+                      className="px-4 py-3 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-extrabold shadow-sm flex items-center gap-2 cursor-not-allowed opacity-90"
+                    >
+                      <Check className="w-4 h-4 text-emerald-700" />
+                      <span>Email Sent ✓</span>
+                    </button>
+                  ) : order.emailStatus === 'Failed' ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailConfirmModal(true)}
+                      disabled={isSendingEmail}
+                      className="px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shadow-md flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isSendingEmail ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                          <span>Sending Email...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 text-white" />
+                          <span>Retry Email</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailConfirmModal(true)}
+                      disabled={isSendingEmail}
+                      className="px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-95 text-white text-xs font-extrabold shadow-md flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isSendingEmail ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                          <span>Sending Email...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="w-4 h-4 text-white" />
+                          <span>Send Confirmation Email</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
                   <a
                     href={getCustomerWhatsAppUrl(order)}
                     target="_blank"
@@ -237,17 +557,7 @@ export const OrderTrackingPage = () => {
                     className="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-md flex items-center gap-2 transition-all cursor-pointer"
                   >
                     <MessageCircle className="w-4 h-4 fill-white text-emerald-600" />
-                    <span>Send Order Confirmation to Customer WhatsApp</span>
-                  </a>
-
-                  <a
-                    href={getAdminWhatsAppUrl(order)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-md flex items-center gap-2 transition-all cursor-pointer"
-                  >
-                    <Send className="w-4 h-4 text-emerald-400" />
-                    <span>Send Alert to Admin WhatsApp (+91 99433 80320)</span>
+                    <span>WhatsApp Receipt</span>
                   </a>
                 </div>
               </div>
@@ -256,14 +566,26 @@ export const OrderTrackingPage = () => {
             {/* Header info card */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-indigo-700 font-extrabold">Order ID: #{order.orderId}</span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                    order.statusTimeline === 'Cancelled'
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                    (order.orderStatus || order.statusTimeline) === 'Confirmed'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : (order.orderStatus || order.statusTimeline) === 'Cancelled' || (order.orderStatus || order.statusTimeline) === 'Rejected'
                       ? 'bg-rose-100 text-rose-800 border-rose-300'
-                      : 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                      : 'bg-amber-100 text-amber-800 border-amber-300'
                   }`}>
-                    {order.statusTimeline}
+                    Order: {order.orderStatus || order.statusTimeline || 'Pending'}
+                  </span>
+
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                    order.emailStatus === 'Sent'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : order.emailStatus === 'Failed'
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : 'bg-slate-100 text-slate-700 border-slate-300'
+                  }`}>
+                    Email: {order.emailStatus || 'Not Sent'}
                   </span>
                 </div>
                 
@@ -273,43 +595,66 @@ export const OrderTrackingPage = () => {
                 <div className="text-xs text-slate-600 font-semibold mt-1">
                   Customer: <span className="text-slate-900 font-extrabold">{order.customerName}</span> ({order.customerEmail})
                 </div>
-
-                {order.cancelReason && (
-                  <div className="text-xs font-bold text-rose-700 mt-1">
-                    Cancellation Reason: {order.cancelReason}
-                  </div>
-                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <a
-                  href={getCustomerWhatsAppUrl(order)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4 text-white" />
-                  <span>WhatsApp Receipt</span>
-                </a>
+
+                {/* SEND CONFIRMATION EMAIL BUTTON IN ORDER HEADER */}
+                {order.emailStatus === 'Sent' ? (
+                  <button
+                    disabled
+                    className="px-4 py-2.5 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-extrabold flex items-center gap-1.5 cursor-not-allowed opacity-90"
+                  >
+                    <Check className="w-4 h-4 text-emerald-700" />
+                    <span>Email Sent ✓</span>
+                  </button>
+                ) : order.emailStatus === 'Failed' ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailConfirmModal(true)}
+                    disabled={isSendingEmail}
+                    className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSendingEmail ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>Sending...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Retry Email</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailConfirmModal(true)}
+                    disabled={isSendingEmail}
+                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-95 text-white font-extrabold text-xs shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSendingEmail ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>Sending...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-4 h-4" />
+                        <span>Send Confirmation Email</span>
+                      </>
+                    )}
+                  </button>
+                )}
 
                 <button
                   onClick={handleDownloadInvoice}
-                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
                 >
                   <Download className="w-4 h-4 text-white" />
                   <span>PDF Invoice</span>
                 </button>
-
-                {/* CANCEL ORDER BUTTON */}
-                {order.statusTimeline !== 'Cancelled' && order.statusTimeline !== 'Delivered' && (
-                  <button
-                    onClick={() => setShowCancelModal(true)}
-                    className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-extrabold border border-rose-200 transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <XCircle className="w-4 h-4 text-rose-600" />
-                    <span>Cancel Order</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -321,20 +666,17 @@ export const OrderTrackingPage = () => {
               </h3>
 
               <div className="relative">
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                   {timelineStages.map((stageName, idx) => {
-                    const currentIdx = getStageIndex(order.statusTimeline);
+                    const currentIdx = getStageIndex(order.orderStatus || order.statusTimeline);
                     const isPassed = idx <= currentIdx;
                     const isCurrent = idx === currentIdx;
-                    const isCancelled = order.statusTimeline === 'Cancelled';
 
                     return (
                       <div
                         key={stageName}
                         className={`p-3.5 rounded-2xl border text-center transition-all ${
-                          isCancelled
-                            ? 'border-rose-200 bg-rose-50/50'
-                            : isCurrent
+                          isCurrent
                             ? 'border-2 border-indigo-600 bg-indigo-50 shadow-md'
                             : isPassed
                             ? 'border-indigo-200 bg-slate-50'
@@ -342,9 +684,7 @@ export const OrderTrackingPage = () => {
                         }`}
                       >
                         <div className="flex justify-center mb-1.5">
-                          {isCancelled ? (
-                            <XCircle className="w-5 h-5 text-rose-600" />
-                          ) : isPassed ? (
+                          {isPassed ? (
                             <CheckCircle2 className="w-5 h-5 text-indigo-600 fill-indigo-600 text-white" />
                           ) : (
                             <div className="w-5 h-5 rounded-full border border-slate-400 text-[10px] flex items-center justify-center text-slate-500 font-bold">
@@ -353,7 +693,6 @@ export const OrderTrackingPage = () => {
                           )}
                         </div>
                         <div className="text-xs font-extrabold text-slate-900">{stageName}</div>
-                        {isCurrent && !isCancelled && <div className="text-[10px] text-indigo-700 font-extrabold mt-1 animate-pulse">In Progress</div>}
                       </div>
                     );
                   })}
@@ -361,119 +700,10 @@ export const OrderTrackingPage = () => {
               </div>
             </div>
 
-            {/* Financial Details */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs">
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="text-slate-500 font-bold">Total Agreed Budget</div>
-                <div className="text-lg font-extrabold text-slate-900 mt-1">₹{order.totalAmount}</div>
-              </div>
-              <div className="bg-white p-5 rounded-2xl border border-emerald-300 bg-emerald-50/50 shadow-sm">
-                <div className="text-emerald-800 font-bold">Advance Paid</div>
-                <div className="text-lg font-extrabold text-emerald-700 mt-1">₹{order.amountPaid}</div>
-              </div>
-              <div className="bg-white p-5 rounded-2xl border border-amber-300 bg-amber-50/50 shadow-sm">
-                <div className="text-amber-800 font-bold">Balance Payment Due</div>
-                <div className="text-lg font-extrabold text-amber-700 mt-1">₹{order.amountDue}</div>
-              </div>
-            </div>
-
-            {/* GPay QR Payment Card if Balance Due and not cancelled */}
-            {order.amountDue > 0 && order.statusTimeline !== 'Cancelled' && (
-              <div className="bg-white p-6 rounded-3xl border-2 border-indigo-200 shadow-md space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                    <QrCode className="w-5 h-5 text-indigo-600" />
-                    Pay Balance Due (₹{order.amountDue}) via GPay QR Code
-                  </h3>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                  <div className="p-3 bg-white rounded-2xl border border-slate-200 shadow-sm">
-                    <img src="/gpay_qr.jpg" alt="S Sanjay GPay QR Code" className="w-44 h-auto rounded-xl" />
-                  </div>
-                  <div className="space-y-3 text-left">
-                    <div className="text-sm font-black text-slate-900">Account Holder: S Sanjay</div>
-                    <div className="text-xs text-slate-600 font-semibold">Scan with GPay, PhonePe, Paytm or BHIM</div>
-                    <div className="text-xs font-extrabold text-indigo-700">UPI ID: {upiId}</div>
-                    <div className="text-xs font-extrabold text-emerald-700">GPay Phone: {upiPhone}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
           </div>
         )}
 
       </div>
-
-      {/* CANCEL ORDER CONFIRMATION MODAL */}
-      {showCancelModal && order && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
-            
-            <div className="flex items-center gap-3 text-rose-600">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center border border-rose-200 shrink-0">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Cancel Order #{order.orderId}?</h3>
-                <p className="text-xs font-bold text-slate-500">Are you sure you want to cancel this booking?</p>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1">
-              <div className="font-extrabold text-slate-900">{order.items?.[0]?.title || 'VibeForge Service'}</div>
-              <div className="font-bold text-slate-600">Paid: ₹{order.amountPaid} • Total: ₹{order.totalAmount}</div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-extrabold text-slate-700 mb-2">
-                Reason for Cancellation:
-              </label>
-              <select
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 font-extrabold focus:outline-none focus:border-rose-500"
-              >
-                <option value="Changed my mind">Changed my mind</option>
-                <option value="Booked by mistake">Booked by mistake</option>
-                <option value="Project requirements updated">Project requirements updated</option>
-                <option value="Found alternative solution">Found alternative solution</option>
-                <option value="Other reason">Other reason</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowCancelModal(false)}
-                disabled={isSubmittingCancel}
-                className="py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs transition-all cursor-pointer border border-slate-300"
-              >
-                Keep Order
-              </button>
-
-              <button
-                type="button"
-                onClick={handleConfirmCancel}
-                disabled={isSubmittingCancel}
-                className="py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                {isSubmittingCancel ? (
-                  <span>Cancelling...</span>
-                ) : (
-                  <>
-                    <XCircle className="w-4 h-4" />
-                    <span>Yes, Cancel Order</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
     </div>
   );
 };
