@@ -82,9 +82,18 @@ const sendEmail = async ({ to, subject, html, text }) => {
 
   // Prefer Brevo REST API (HTTPS). This is recommended on serverless platforms where
   // SMTP ports may be blocked. Use BREVO_API_KEY for REST; do not reuse SMTP_PASS here.
-  const brevoApiKey = process.env.BREVO_API_KEY && process.env.BREVO_API_KEY.trim() ? process.env.BREVO_API_KEY.trim() : null;
+  const rawBrevoApiKey = process.env.BREVO_API_KEY && process.env.BREVO_API_KEY.trim() ? process.env.BREVO_API_KEY.trim() : null;
   const smtpPass = process.env.SMTP_PASS && process.env.SMTP_PASS.trim() ? process.env.SMTP_PASS.trim() : null;
-  const apiKey = brevoApiKey || null;
+
+  const isValidBrevoRestKey = (key) => {
+    if (!key) return false;
+    return /^(xkeysib-|xsmtpsib-|v3-)[A-Za-z0-9_-]+$/.test(key);
+  };
+
+  const apiKey = isValidBrevoRestKey(rawBrevoApiKey) ? rawBrevoApiKey : null;
+  if (rawBrevoApiKey && !apiKey) {
+    console.warn('[BREVO REST API] BREVO_API_KEY is present but does not match expected Brevo REST key format.');
+  }
 
   const cleanSenderEmail = (() => {
     let email = 'vibeforgemrs@gmail.com';

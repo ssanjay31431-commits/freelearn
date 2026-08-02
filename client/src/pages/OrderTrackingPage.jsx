@@ -93,6 +93,7 @@ export const OrderTrackingPage = () => {
         `*Status:* ${ord?.orderStatus || ord?.statusTimeline || 'Pending'}`,
         "",
         `*Track Live Production:* ${clientUrl}/track?id=${ord?.orderId}`,
+      ];
 
     return `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(lines.join("\n"))}`;
   };
