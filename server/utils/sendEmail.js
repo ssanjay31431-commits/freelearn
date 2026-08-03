@@ -441,9 +441,18 @@ const sendWelcomeEmail = async ({ customerName, customerEmail }) => {
 };
 
 const sendDatabaseClearOtpEmail = async ({ email, otp }) => {
-  const html = `<div>OTP: ${otp}</div>`;
+  const html = `<div>Database Purge OTP: <strong>${otp}</strong></div>`;
   const text = `Database Purge OTP: ${otp}`;
-  const recipients = getAdminRecipients();
+
+  // If a specific email was provided, send OTP to that address, otherwise use configured admin recipients
+  const recipients = Array.isArray(email) ? email : (email ? [String(email).trim()] : getAdminRecipients());
+
+  if (!recipients || recipients.length === 0) {
+    console.warn('[sendDatabaseClearOtpEmail] No recipients found for OTP email. Aborting send.');
+    return false;
+  }
+
+  console.log(`[sendDatabaseClearOtpEmail] Sending OTP to: ${recipients.join(', ')}`);
 
   return sendEmail({
     to: recipients,
