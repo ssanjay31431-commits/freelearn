@@ -1,6 +1,37 @@
 {
   "orders": [
     {
+      "orderId": "VF-736419",
+      "user": null,
+      "customerName": "Integration Test User",
+      "customerEmail": "integration-test@example.com",
+      "customerPhone": "9999999999",
+      "address": "",
+      "items": [
+        {
+          "title": "Integration Test Service",
+          "quantity": 1,
+          "price": 500
+        }
+      ],
+      "subtotal": 500,
+      "discount": 0,
+      "gst": 90,
+      "totalAmount": 590,
+      "paymentType": "full",
+      "amountPaid": 590,
+      "amountDue": 0,
+      "paymentMethod": "Razorpay / UPI",
+      "paymentStatus": "PAID",
+      "orderStatus": "Order Received",
+      "emailStatus": "NOT_SENT",
+      "statusTimeline": "Order Received",
+      "adminNotificationEmail": "vibeforge@gmail.com",
+      "adminNotificationPhone": "9943380320",
+      "createdAt": "2026-08-03T16:44:27.163Z",
+      "_id": "6a70c56b4684d4eabb3fff50"
+    },
+    {
       "orderId": "VF-881262",
       "user": null,
       "customerName": "S Sanjay",

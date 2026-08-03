@@ -72,18 +72,15 @@ const sendEmail = async ({ to, subject, html, text }) => {
   const sender = getSenderAddress();
   const fromAddress = sender.includes('<') ? sender : `VibeForge <${sender}>`;
 
-  // Method 1: Try Brevo REST API over HTTPS (Port 443 - Bypasses cloud port blocks)
-  const pk1 = 'xsmtpsib-';
-  const pk2 = 'ead6cab910372df02d91f647d31da0b8b9c1cb2754baca988a868f2eb1f30047-emC2ClaZ1DqFh0zC';
-
-  let apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey || !apiKey.trim().startsWith('xsmtpsib-')) {
-    if (process.env.SMTP_PASS && process.env.SMTP_PASS.trim().startsWith('xsmtpsib-')) {
-      apiKey = process.env.SMTP_PASS.trim();
-    } else {
-      apiKey = pk1 + pk2;
-    }
+  // Method 1: Try Brevo REST API over HTTPS (Port 443 - bypasses common port blocks)
+  let apiKey = (process.env.BREVO_API_KEY || '').trim();
+  // Some deployments may store the REST API key in SMTP_PASS by mistake; accept it if it looks like a REST key
+  if (!apiKey && process.env.SMTP_PASS && process.env.SMTP_PASS.trim().startsWith('xkeysib-')) {
+    apiKey = process.env.SMTP_PASS.trim();
   }
+
+  // Only attempt Brevo REST if we have a REST API key (starts with xkeysib-)
+  const canUseBrevoRest = !!(apiKey && apiKey.startsWith('xkeysib-'));
 
   let cleanSenderEmail = 'vibeforgemrs@gmail.com';
   if (sender && sender.includes('@')) {
@@ -100,42 +97,46 @@ const sendEmail = async ({ to, subject, html, text }) => {
   console.log(`📥 To: ${recipients.join(', ')}`);
   console.log(`📌 Subject: ${subject}`);
 
-  try {
-    const brevoRes = await axios.post(
-      'https://api.brevo.com/v3/smtp/email',
-      {
-        sender: { name: senderName, email: cleanSenderEmail },
-        to: recipients.map((email) => ({ email: String(email).trim() })),
-        subject,
-        htmlContent: html,
-        textContent: text || '',
-      },
-      {
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': apiKey,
+  if (canUseBrevoRest) {
+    try {
+      const brevoRes = await axios.post(
+        'https://api.brevo.com/v3/smtp/email',
+        {
+          sender: { name: senderName, email: cleanSenderEmail },
+          to: recipients.map((email) => ({ email: String(email).trim() })),
+          subject,
+          htmlContent: html,
+          textContent: text || '',
         },
-        timeout: 15000,
-      }
-    );
+        {
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'api-key': apiKey,
+          },
+          timeout: 15000,
+        }
+      );
 
-    const responseJson = brevoRes?.data || {};
-    console.log(`✅ [BREVO REST API SUCCESS] Message ID:`, responseJson?.messageId || responseJson?.id || 'OK');
-    logEmailDetails({ stage: 'SUCCESS', to: recipients, sender: fromAddress, subject, response: responseJson });
-    return true;
-  } catch (apiErr) {
-    const statusCode = apiErr.response?.status || 'UNKNOWN';
-    const responseData = apiErr.response?.data || apiErr.message || {};
-    console.warn('⚠️ Brevo REST API exception:', statusCode, responseData);
-    logEmailDetails({
-      stage: 'EXCEPTION',
-      to: recipients,
-      sender: fromAddress,
-      subject,
-      response: responseData,
-      error: { message: apiErr.message, status: statusCode },
-    });
+      const responseJson = brevoRes?.data || {};
+      console.log(`✅ [BREVO REST API SUCCESS] Message ID:`, responseJson?.messageId || responseJson?.id || 'OK');
+      logEmailDetails({ stage: 'SUCCESS', to: recipients, sender: fromAddress, subject, response: responseJson });
+      return true;
+    } catch (apiErr) {
+      const statusCode = apiErr.response?.status || 'UNKNOWN';
+      const responseData = apiErr.response?.data || apiErr.message || {};
+      console.warn('⚠️ Brevo REST API exception:', statusCode, responseData);
+      logEmailDetails({
+        stage: 'EXCEPTION',
+        to: recipients,
+        sender: fromAddress,
+        subject,
+        response: responseData,
+        error: { message: apiErr.message, status: statusCode },
+      });
+    }
+  } else {
+    console.warn('[BREVO REST API] No valid Brevo REST API key (xkeysib-) found. Skipping REST API attempt.');
   }
 
   // Method 2: Fallback to Nodemailer SMTP
