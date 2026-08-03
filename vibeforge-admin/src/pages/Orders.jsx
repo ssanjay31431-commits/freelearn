@@ -93,14 +93,24 @@ export default function Orders() {
 
   const handleStatusChange = async (orderId, newStatus) => {
     setUpdatingId(orderId);
+    // Optimistic UI update: apply immediately
+    setOrders((prev) => prev.map((o) => (o.orderId === orderId ? { ...o, statusTimeline: newStatus } : o)));
     try {
-      await axiosClient.put(`/admin/orders/${orderId}/status`, {
+      const res = await axiosClient.put(`/admin/orders/${orderId}/status`, {
         statusTimeline: newStatus
       });
-      await fetchOrders();
+      // If server returned updated order, reconcile it
+      if (res && res.data && res.data.orderId) {
+        setOrders((prev) => prev.map((o) => (o.orderId === res.data.orderId ? { ...o, ...res.data } : o)));
+      }
     } catch (err) {
-      console.warn('Backend API update status fallback to Firestore');
-      await updateFirestoreOrderStatusAdmin(orderId, newStatus);
+      console.warn('Backend API update status fallback to Firestore or failed:', err?.response?.data || err.message);
+      try {
+        await updateFirestoreOrderStatusAdmin(orderId, newStatus);
+      } catch (fsErr) {
+        console.error('Firestore update failed:', fsErr);
+      }
+      // On failure, refetch to ensure UI reflects server state
       await fetchOrders();
     } finally {
       setUpdatingId(null);
