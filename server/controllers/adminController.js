@@ -370,24 +370,28 @@ const getAdminStats = async (req, res) => {
     startOfMonth.setHours(0, 0, 0, 0);
 
     const todayOrders = orders.filter((o) => new Date(o.createdAt || Date.now()) >= startOfToday);
-    const pendingOrders = orders.filter((o) => !['Completed', 'Delivered'].includes(o.statusTimeline) && o.paymentStatus !== 'paid');
-    const completedOrders = orders.filter((o) => ['Completed', 'Delivered'].includes(o.statusTimeline) || o.paymentStatus === 'paid');
-    const cancelledOrders = orders.filter((o) => o.statusTimeline === 'Cancelled' || o.paymentStatus === 'failed');
+    // Normalize paymentStatus comparisons (case-insensitive) to avoid mismatches like 'PAID' vs 'paid'
+    const isPaid = (ps) => String(ps || '').toLowerCase() === 'paid';
+    const isFailed = (ps) => String(ps || '').toLowerCase() === 'failed';
+
+    const pendingOrders = orders.filter((o) => !['Completed', 'Delivered'].includes(o.statusTimeline) && !isPaid(o.paymentStatus));
+    const completedOrders = orders.filter((o) => ['Completed', 'Delivered'].includes(o.statusTimeline) || isPaid(o.paymentStatus));
+    const cancelledOrders = orders.filter((o) => o.statusTimeline === 'Cancelled' || isFailed(o.paymentStatus));
 
     const revenueToday = todayOrders
-      .filter((o) => o.paymentStatus === 'paid' || ['Completed', 'Delivered'].includes(o.statusTimeline))
+      .filter((o) => isPaid(o.paymentStatus) || ['Completed', 'Delivered'].includes(o.statusTimeline))
       .reduce((sum, o) => sum + (Number(o.amountPaid) || Number(o.totalAmount) || 0), 0);
 
     const revenueThisMonth = orders
-      .filter((o) => new Date(o.createdAt || Date.now()) >= startOfMonth && (o.paymentStatus === 'paid' || ['Completed', 'Delivered'].includes(o.statusTimeline)))
+      .filter((o) => new Date(o.createdAt || Date.now()) >= startOfMonth && (isPaid(o.paymentStatus) || ['Completed', 'Delivered'].includes(o.statusTimeline)))
       .reduce((sum, o) => sum + (Number(o.amountPaid) || Number(o.totalAmount) || 0), 0);
 
     const totalRevenue = orders
-      .filter((o) => o.paymentStatus === 'paid' || ['Completed', 'Delivered'].includes(o.statusTimeline))
+      .filter((o) => isPaid(o.paymentStatus) || ['Completed', 'Delivered'].includes(o.statusTimeline))
       .reduce((sum, o) => sum + (Number(o.amountPaid) || Number(o.totalAmount) || 0), 0);
 
     const pendingPayments = orders
-      .filter((o) => o.paymentStatus !== 'paid')
+      .filter((o) => !isPaid(o.paymentStatus))
       .reduce((sum, o) => sum + (Number(o.amountDue) || (Number(o.totalAmount) - Number(o.amountPaid || 0)) || 0), 0);
 
     const newCustomersCount = customers.filter(
@@ -483,7 +487,7 @@ const updateOrderStatus = async (req, res) => {
     if (!targetOrder) return res.status(404).json({ message: 'Order not found' });
 
     if (statusTimeline) targetOrder.statusTimeline = statusTimeline;
-    if (paymentStatus) targetOrder.paymentStatus = paymentStatus;
+    if (paymentStatus) targetOrder.paymentStatus = String(paymentStatus).toUpperCase();
     if (amountPaid !== undefined) targetOrder.amountPaid = amountPaid;
     if (notes) targetOrder.notes = notes;
 
