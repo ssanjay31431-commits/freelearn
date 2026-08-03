@@ -539,7 +539,49 @@ const uploadDeliveryFiles = async (req, res) => {
   res.json({ message: 'File uploaded' });
 };
 const deleteOrder = async (req, res) => {
-  res.json({ message: 'Order deleted' });
+  const { id } = req.params;
+  try {
+    let deletedOrder = null;
+    try {
+      deletedOrder = await Order.findOneAndDelete({ orderId: id });
+    } catch (e) {
+      deletedOrder = null;
+    }
+
+    // Remove from in-memory/mock store and persistent file backup
+    try {
+      const { mockOrdersDB } = require('./orderController');
+      const idx = (mockOrdersDB || []).findIndex((o) => o.orderId === id);
+      if (idx !== -1) mockOrdersDB.splice(idx, 1);
+
+      const { loadStore, saveStore } = require('../utils/fileStore');
+      const current = loadStore();
+      current.orders = (current.orders || []).filter((o) => o.orderId !== id);
+      saveStore(current);
+    } catch (e) {
+      // Non-fatal if mock store cleanup fails
+      console.warn('Warning: failed to clean up mock orders store for deletion', e?.message || e);
+    }
+
+    // Emit Socket.IO event to notify admin UI
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('orderDeleted', { orderId: id });
+        io.emit('notification:order', { title: `Order #${id} Deleted`, message: `Order ${id} was removed by admin`, orderId: id });
+      }
+    } catch (e) {}
+
+    // Audit log
+    try {
+      logAudit({ req, action: 'DELETE_ORDER', resource: 'Order', resourceId: id, details: `Order ${id} deleted by admin` });
+    } catch (e) {}
+
+    return res.json({ message: 'Order deleted', orderId: id, deleted: !!deletedOrder });
+  } catch (error) {
+    console.error('Error deleting order:', error);
+    return res.status(500).json({ message: 'Failed to delete order', error: error.message });
+  }
 };
 
 // ==========================================
