@@ -37,6 +37,9 @@ export const CheckoutPage = () => {
   } else if (paymentType === 'token_50') {
     amountToPayNow = 50;
     amountDueLater = Math.max(0, grandTotal - 50);
+  } else if (paymentType === 'demo_1') {
+    amountToPayNow = 1;
+    amountDueLater = Math.max(0, grandTotal - 1);
   } else {
     amountToPayNow = grandTotal;
     amountDueLater = 0;
@@ -190,7 +193,7 @@ export const CheckoutPage = () => {
                 Choose Payment Option
               </h3>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 
                 {/* 50% Advance Option */}
                 <button
@@ -243,6 +246,24 @@ export const CheckoutPage = () => {
                   <div className="text-xs font-bold text-slate-700 mt-1">Pay ₹50 token to initiate</div>
                 </button>
 
+                {/* ₹1 Demo Test Option */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentType('demo_1')}
+                  className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                    paymentType === 'demo_1'
+                      ? 'border-2 border-rose-600 bg-rose-50/90 shadow-md'
+                      : 'border border-slate-200 bg-slate-50 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="text-xs font-black text-slate-900 flex items-center gap-1 uppercase">
+                    <Sparkles className="w-4 h-4 text-rose-600 fill-rose-600" />
+                    <span>₹1 Demo Test</span>
+                  </div>
+                  <div className="text-sm text-rose-700 font-extrabold mt-1">₹1 Today</div>
+                  <div className="text-xs font-bold text-slate-700 mt-1">Pay ₹1 live demo check</div>
+                </button>
+
               </div>
 
               {/* DEDUCTION NOTICE MESSAGE BOX FOR ₹50 TOKEN PAYMENT */}
@@ -254,6 +275,19 @@ export const CheckoutPage = () => {
                   </div>
                   <p className="text-purple-950 font-bold leading-relaxed">
                     💡 <strong>Note to Customer:</strong> Your ₹50 deposit paid today will be <strong>fully deducted</strong> from your total bill! Your remaining balance will only be <strong>₹{Math.max(0, grandTotal - 50)}</strong> after final project delivery.
+                  </p>
+                </div>
+              )}
+
+              {/* DEMO NOTICE MESSAGE BOX FOR ₹1 DEMO PAYMENT */}
+              {paymentType === 'demo_1' && (
+                <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-xs space-y-1.5 animate-in fade-in">
+                  <div className="font-extrabold text-rose-900 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-rose-600 fill-rose-600" />
+                    <span>₹1 Live Payment Workflow Test</span>
+                  </div>
+                  <p className="text-rose-950 font-bold leading-relaxed">
+                    🧪 <strong>Live Payment Test:</strong> Pay <strong>₹1</strong> today to test the live Cashfree payment workflow! Your remaining balance will be <strong>₹{Math.max(0, grandTotal - 1)}</strong> after project delivery.
                   </p>
                 </div>
               )}

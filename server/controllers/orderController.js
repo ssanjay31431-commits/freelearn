@@ -64,6 +64,8 @@ const calculateOrderAmounts = (items = [], paymentType = 'full', couponCode = ''
     amountPaid = Math.round(totalAmount * 0.5);
   } else if (paymentType === 'token_50') {
     amountPaid = 50;
+  } else if (paymentType === 'demo_1') {
+    amountPaid = 1;
   } else {
     amountPaid = totalAmount;
   }
