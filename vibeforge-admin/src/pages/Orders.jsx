@@ -78,16 +78,31 @@ export default function Orders() {
       }
     };
 
+    const handleOrderDeleted = ({ orderId }) => {
+      console.log('⚡ [Socket.IO] Order deleted event received for:', orderId);
+      if (!orderId) return;
+      setOrders((prev) => prev.filter((o) => o.orderId !== orderId));
+    };
+
+    const handleDataCleared = () => {
+      console.log('⚡ [Socket.IO] Admin data cleared event received; removing all orders');
+      setOrders([]);
+    };
+
     socket.on('newOrder', handleNewOrder);
     socket.on('order:created', handleNewOrder);
     socket.on('orderUpdated', handleOrderUpdated);
     socket.on('order:status_updated', handleOrderUpdated);
+    socket.on('orderDeleted', handleOrderDeleted);
+    socket.on('admin:data_cleared', handleDataCleared);
 
     return () => {
       socket.off('newOrder', handleNewOrder);
       socket.off('order:created', handleNewOrder);
       socket.off('orderUpdated', handleOrderUpdated);
       socket.off('order:status_updated', handleOrderUpdated);
+      socket.off('orderDeleted', handleOrderDeleted);
+      socket.off('admin:data_cleared', handleDataCleared);
     };
   }, [socket]);
 

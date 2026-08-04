@@ -13,9 +13,6 @@ const connectDB = require('./config/db');
 const app = express();
 const server = http.createServer(app);
 
-// Connect Database
-connectDB();
-
 // Security & Rate Limiting Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 
@@ -137,48 +134,66 @@ app.get('/api/health', (req, res) => {
 });
 
 // API Routes
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/services', require('./routes/serviceRoutes'));
-app.use('/api/orders', require('./routes/orderRoutes'));
-app.use('/api/payment', require('./routes/paymentRoutes'));
-app.use('/api/quotes', require('./routes/quoteRoutes'));
-app.use('/api/contact', require('./routes/contactRoutes'));
-app.use('/api/admin', require('./routes/adminRoutes'));
-app.use('/api/ai', require('./routes/aiRoutes'));
-app.use('/api/debug', require('./routes/debugRoutes'));
+const registerRoutes = () => {
+  app.use('/api/auth', require('./routes/authRoutes'));
+  app.use('/api/services', require('./routes/serviceRoutes'));
+  app.use('/api/orders', require('./routes/orderRoutes'));
+  app.use('/api/payment', require('./routes/paymentRoutes'));
+  app.use('/payment', require('./routes/paymentRoutes'));
+  app.use('/api/quotes', require('./routes/quoteRoutes'));
+  app.use('/api/contact', require('./routes/contactRoutes'));
+  app.use('/api/admin', require('./routes/adminRoutes'));
+  app.use('/api/ai', require('./routes/aiRoutes'));
+  app.use('/api/debug', require('./routes/debugRoutes'));
 
-// 404 Route Handler
-app.use((req, res) => {
-  res.status(404).json({ message: `API Route ${req.originalUrl} not found` });
-});
-
-// Error Handler
-app.use((err, req, res, next) => {
-  console.error('Unhandled Server Error:', err);
-  res.status(500).json({ message: err.message || 'Server Internal Error' });
-});
-
-const startServer = (port) => {
-  server.once('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      const nextPort = port + 1;
-      if (nextPort <= port + 10) {
-        console.warn(`⚠️ Port ${port} is already in use. Trying ${nextPort} instead...`);
-        server.removeAllListeners('error');
-        startServer(nextPort);
-      } else {
-        console.error(`❌ No available port found in range ${port}-${port + 10}.`);
-        process.exit(1);
-      }
-    } else {
-      console.error('Server error:', err);
-      process.exit(1);
-    }
-  });
-
-  server.listen(port, () => {
-    console.log(`🚀 VibeForge Enterprise Server running on port ${port}`);
+  // 404 Route Handler
+  app.use((req, res) => {
+    res.status(404).json({ message: `API Route ${req.originalUrl} not found` });
   });
 };
 
-startServer(Number(process.env.PORT || 5000));
+// Error Handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled Server Error:', err.stack || err);
+  res.status(500).json({ message: err.message || 'Server Internal Error' });
+});
+
+const port = Number(process.env.PORT || 5000);
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception during startup:', error.stack || error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection during startup:', reason && (reason.stack || reason));
+  process.exit(1);
+});
+
+const startServer = async () => {
+  try {
+    console.log('Starting VibeForge server...');
+    console.log('NODE_ENV:', process.env.NODE_ENV || 'undefined');
+    console.log('PORT:', process.env.PORT || 'undefined');
+
+    await connectDB();
+    registerRoutes();
+
+    const host = '0.0.0.0';
+    console.log('Binding host:', host);
+
+    server.on('error', (err) => {
+      console.error('Server failed to start:', err.stack || err);
+      process.exit(1);
+    });
+
+    server.listen(port, host, () => {
+      console.log(`🚀 VibeForge Enterprise Server running on port ${port} and host ${host}`);
+    });
+  } catch (error) {
+    console.error('Fatal startup error:', error.stack || error);
+    process.exit(1);
+  }
+};
+
+startServer();

@@ -880,10 +880,15 @@ const requestClearDataOtp = async (req, res) => {
     const { sendDatabaseClearOtpEmail } = require('../utils/sendEmail');
     await sendDatabaseClearOtpEmail({ email: 'tsomu7036@gmail.com', otp });
 
-    res.json({
+    const responsePayload = {
       success: true,
       message: 'Password verified! 6-Digit Database Purge OTP sent to tsomu7036@gmail.com.'
-    });
+    };
+    if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_OTP === 'true') {
+      responsePayload.debugOtp = otp;
+    }
+
+    res.json(responsePayload);
   } catch (error) {
     res.status(500).json({ message: 'Error processing OTP request', error: error.message });
   }

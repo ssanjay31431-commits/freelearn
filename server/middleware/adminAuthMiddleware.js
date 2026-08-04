@@ -48,11 +48,22 @@ const protectAdmin = async (req, res, next) => {
 
 const authorizeRoles = (...roles) => {
   return (req, res, next) => {
-    if (!req.user || (!roles.includes(req.user.role) && req.user.role !== 'super_admin' && req.user.role !== 'admin')) {
+    if (!req.user) {
       return res.status(403).json({
-        message: `Role (${req.user ? req.user.role : 'none'}) is not authorized to access this resource`
+        message: 'User role is required to access this resource'
       });
     }
+
+    if (req.user.role === 'super_admin') {
+      return next();
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: `Role (${req.user.role}) is not authorized to access this resource`
+      });
+    }
+
     next();
   };
 };

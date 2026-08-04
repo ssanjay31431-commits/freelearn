@@ -215,7 +215,7 @@ const verifyCashfreeOrderAndCreate = async (paymentIntent, webhookPayload = null
   return saveConfirmedOrder({ paymentIntent, cashfreeOrder: cfOrder, paymentRecord, webhookPayload });
 };
 
-const createCashfreeOrder = async (req, res) => {
+const createOrder = async (req, res) => {
   try {
     const {
       customerName,

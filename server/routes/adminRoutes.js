@@ -58,7 +58,7 @@ router.put('/order/:id', updateOrderStatus); // Legacy support
 router.put('/orders/:id/assign', assignEmployeeToOrder);
 router.post('/orders/:id/notes', addInternalNote);
 router.post('/orders/:id/files', uploadDeliveryFiles);
-router.delete('/orders/:id', authorizeRoles('super_admin', 'manager'), deleteOrder);
+router.delete('/orders/:id', authorizeRoles('super_admin', 'manager', 'admin'), deleteOrder);
 
 // Customers
 router.get('/customers', getCustomers);
@@ -81,6 +81,6 @@ router.get('/settings', getSettings);
 router.put('/settings', authorizeRoles('super_admin'), updateSettings);
 router.post('/notifications', sendBroadcastNotification);
 router.post('/request-clear-otp', requestClearDataOtp);
-router.post('/clear-all-data', authorizeRoles('super_admin'), confirmClearAllData);
+router.post('/clear-all-data', authorizeRoles('super_admin', 'admin'), confirmClearAllData);
 
 module.exports = router;

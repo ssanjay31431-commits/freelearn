@@ -252,6 +252,7 @@ const createCashfreeOrder = async (req, res) => {
       customerName,
       notifyUrl: buildNotifyUrl(),
       returnUrl: buildReturnUrl(orderId),
+      paymentMethods: 'upi,card,netbanking',
     });
 
     const gateway = getCashfreeGateway();
