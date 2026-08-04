@@ -9,7 +9,7 @@ import { io } from 'socket.io-client';
 export const OrderTrackingPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const queryId = searchParams.get('id') || '';
+  const queryId = searchParams.get('orderId') || searchParams.get('id') || '';
   const isNewOrder = searchParams.get('newOrder') === 'true';
 
   const [orderId, setOrderId] = useState(queryId);
