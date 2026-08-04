@@ -4,7 +4,6 @@ import { CreditCard, ShieldCheck, CheckCircle2, Lock, ArrowRight, Zap, Building,
 import { CartContext } from '../context/CartContext';
 import { AuthContext } from '../context/AuthContext';
 import axiosClient from '../api/axiosClient';
-import { createFirestoreOrder } from '../firebase/dbService';
 
 export const CheckoutPage = () => {
   const { cartItems, grandTotal, coupon, clearCart } = useContext(CartContext);
@@ -55,19 +54,6 @@ export const CheckoutPage = () => {
     }
   }, []);
 
-  const saveOrderToMongoDB = async (orderPayload) => {
-    try {
-      const res = await axiosClient.post('/orders', orderPayload);
-      if (res?.data) {
-        console.log('✅ Saved order in MongoDB. No customer email was sent automatically.', res.data);
-        return res.data;
-      }
-    } catch (e) {
-      console.warn('[MongoDB Save Attempt] Backend order post failed:', e.message || e);
-    }
-    return null;
-  };
-
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     if (!customerName || !customerEmail || !customerPhone) {
@@ -79,48 +65,32 @@ export const CheckoutPage = () => {
     try {
       const generatedOrderId = 'VF-' + Math.floor(100000 + Math.random() * 900000);
 
-      const orderPayload = {
+      const paymentPayload = {
         orderId: generatedOrderId,
-        user: user || null,
-        userId: user?._id || user?.uid || 'guest',
         customerName,
         customerEmail,
         customerPhone,
         address,
         items: cartItems,
-        totalAmount: grandTotal,
-        amountPaid: amountToPayNow,
-        amountDue: amountDueLater,
         paymentType,
         paymentMethod,
-        paymentStatus: paymentType === 'token_50' ? 'Token Deposit Paid (Rs.50 Deducted)' : paymentType === 'advance_50' ? 'Advance Paid (50%)' : 'Full Payment Completed',
-        orderStatus: 'Pending',
-        statusTimeline: 'Pending',
-        emailStatus: 'Not Sent',
         couponCode: coupon?.code || '',
-        adminNotificationEmail: adminEmail,
-        adminNotificationPhone: adminWhatsAppPhone,
-        upiId,
-        upiPhone,
+        totalAmount: grandTotal,
       };
 
-      // 1. Store order in MongoDB Database with Order Status = Pending, Email Status = Not Sent
-      const mongoResult = await saveOrderToMongoDB(orderPayload);
+      const response = await axiosClient.post('/payment/create-order', paymentPayload);
+      const paymentUrl = response?.data?.paymentUrl;
+      const returnedOrderId = response?.data?.orderId || generatedOrderId;
 
-      // 2. Write to Firebase Firestore
-      const createdOrder = await createFirestoreOrder(orderPayload);
+      if (!paymentUrl) {
+        throw new Error('Unable to initiate Cashfree payment.');
+      }
 
-      // 3. Clear cart (Do NOT send any email automatically from customer website)
-      clearCart();
-      setLoading(false);
-
-      // 4. Redirect to tracking page
-      const targetId = mongoResult?.orderId || createdOrder?.orderId || generatedOrderId;
-      navigate(`/track?id=${targetId}&newOrder=true`);
+      window.location.href = paymentUrl;
     } catch (err) {
-      console.error(err);
+      console.error('[Checkout] Cashfree create order failed:', err);
       setLoading(false);
-      alert('Order placement failed. Please try again.');
+      alert('Unable to start the payment process. Please try again.');
     }
   };
 

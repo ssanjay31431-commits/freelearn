@@ -1,6 +1,13 @@
 const Order = require('../models/Order');
+const PaymentIntent = require('../models/PaymentIntent');
 const { sendAdminNotification, sendOrderConfirmation } = require('../utils/sendEmail');
 const { loadStore, saveStore } = require('../utils/fileStore');
+const {
+  getCashfreeConfig,
+  buildCashfreeOrderRequest,
+  getCashfreeGateway,
+  verifySignature,
+} = require('../utils/cashfreeHelper');
 
 // In-memory / persistent file store for orders if DB is unavailable
 const initialStore = loadStore();
@@ -32,7 +39,183 @@ const dispatchOrderEmails = async (orderData) => {
   }
 };
 
-const createOrder = async (req, res) => {
+const calculateOrderAmounts = (items = [], paymentType = 'full', couponCode = '', providedTotal = 0) => {
+  let subtotal = 0;
+  (items || []).forEach((item) => {
+    let itemPrice = Number(item.price) || 0;
+    if (item.priority === 'fast') itemPrice += 100;
+    if (item.priority === 'express') itemPrice += 200;
+    subtotal += itemPrice * (item.quantity || 1);
+  });
+
+  let discount = 0;
+  if (couponCode && couponCode.toUpperCase() === 'VIBE10') {
+    discount = Math.round(subtotal * 0.1);
+  } else if (couponCode && couponCode.toUpperCase() === 'FIRST20') {
+    discount = Math.round(subtotal * 0.2);
+  }
+
+  const discountedSubtotal = Math.max(0, subtotal - discount);
+  const gst = Math.round(discountedSubtotal * 0.18);
+  const totalAmount = providedTotal > 0 ? Number(providedTotal) : discountedSubtotal + gst;
+
+  let amountPaid = 0;
+  if (paymentType === 'advance_50') {
+    amountPaid = Math.round(totalAmount * 0.5);
+  } else if (paymentType === 'token_50') {
+    amountPaid = 50;
+  } else {
+    amountPaid = totalAmount;
+  }
+
+  const amountDue = Math.max(0, totalAmount - amountPaid);
+
+  return {
+    subtotal,
+    discount,
+    gst,
+    totalAmount,
+    amountPaid,
+    amountDue,
+  };
+};
+
+const emitOrderEvents = (io, order) => {
+  if (!io || !order) return;
+  io.emit('newOrder', order);
+  io.emit('order:created', order);
+  io.emit('notification:order', {
+    title: `New Order Received! #${order.orderId}`,
+    message: `${order.customerName} ordered ${order.items?.[0]?.title || 'Service'} for ₹${order.totalAmount}`,
+    orderId: order.orderId,
+  });
+};
+
+const saveOrderBackup = (order) => {
+  const existingIdx = mockOrdersDB.findIndex((o) => o.orderId === order.orderId);
+  const payload = { ...order.toObject ? order.toObject() : order, _id: order._id };
+  if (existingIdx !== -1) {
+    mockOrdersDB[existingIdx] = payload;
+  } else {
+    mockOrdersDB.unshift(payload);
+  }
+  syncMockOrdersStore();
+};
+
+const saveConfirmedOrder = async ({ paymentIntent, cashfreeOrder, paymentRecord, webhookPayload }) => {
+  const orderId = paymentIntent.orderId;
+  const orderExists = await Order.findOne({ orderId });
+  if (orderExists) {
+    return orderExists;
+  }
+
+  const payload = paymentIntent.payload || {};
+  const paymentTimestampRaw = paymentRecord?.paymentTime || paymentRecord?.payment_time || webhookPayload?.tx_time || webhookPayload?.payment_time;
+  const paymentTimestamp = paymentTimestampRaw ? new Date(paymentTimestampRaw) : new Date();
+
+  const orderData = {
+    orderId,
+    user: payload.user || null,
+    customerName: payload.customerName,
+    customerEmail: payload.customerEmail,
+    customerPhone: payload.customerPhone,
+    address: payload.address || '',
+    items: payload.items || [],
+    subtotal: paymentIntent.subtotal || payload.subtotal || paymentIntent.totalAmount,
+    discount: paymentIntent.discount || payload.discount || 0,
+    gst: paymentIntent.gst || payload.gst || 0,
+    totalAmount: paymentIntent.totalAmount,
+    paymentType: paymentIntent.paymentType || payload.paymentType || 'full',
+    amountPaid: paymentIntent.amountPaid,
+    amountDue: paymentIntent.amountDue,
+    paymentMethod: paymentIntent.paymentMethod || payload.paymentMethod || 'Cashfree',
+    paymentStatus: 'PAID',
+    orderStatus: 'Confirmed',
+    statusTimeline: 'Confirmed',
+    emailStatus: 'NOT_SENT',
+    cashfreeOrderId: paymentIntent.cashfreeOrderId || '',
+    cashfreeOrderInternalId: paymentIntent.cashfreeOrderInternalId || '',
+    cashfreePaymentSessionId: paymentIntent.cashfreePaymentSessionId || '',
+    cashfreeResponse: {
+      order: cashfreeOrder || {},
+      payment: paymentRecord || {},
+      webhookPayload: webhookPayload || {},
+    },
+    transactionId: paymentRecord?.bankReference || paymentRecord?.authId || paymentRecord?.cfPaymentId?.toString() || paymentIntent.cashfreeOrderId || '',
+    paymentTimestamp,
+    createdAt: new Date(),
+  };
+
+  let order = await Order.create(orderData);
+  saveOrderBackup(order);
+
+  const io = req?.app?.get ? req.app.get('io') : null;
+  emitOrderEvents(io, order);
+
+  try {
+    const customerSent = await sendOrderConfirmation(orderData);
+    if (customerSent) {
+      order.emailStatus = 'SENT';
+      order.emailSentAt = new Date();
+      await order.save();
+      saveOrderBackup(order);
+      if (io) {
+        io.emit('orderUpdated', order);
+        io.emit('order:status_updated', order);
+        io.to(`order_${order.orderId}`).emit('orderUpdated', order);
+        io.to(`order_${order.orderId}`).emit('order:status_updated', order);
+      }
+    } else {
+      order.emailStatus = 'FAILED';
+      await order.save();
+      saveOrderBackup(order);
+    }
+  } catch (error) {
+    order.emailStatus = 'FAILED';
+    await order.save();
+    console.error('❌ Error sending confirmation email after payment verification:', error.message || error);
+  }
+
+  await dispatchOrderEmails(orderData);
+  return order;
+};
+
+const verifyCashfreeOrderAndCreate = async (paymentIntent, webhookPayload = null) => {
+  if (!paymentIntent) {
+    throw new Error('Payment intent not found for verification');
+  }
+
+  const config = getCashfreeConfig();
+  const gateway = getCashfreeGateway();
+
+  const orderResult = await gateway.getOrder(config, paymentIntent.orderId);
+  const paymentsResult = await gateway.getPaymentsForOrder(config, paymentIntent.orderId);
+
+  const cfOrder = orderResult?.cfOrder;
+  const payments = paymentsResult?.cfPaymentsEntities || [];
+  const successPayment = payments.find((payment) => String(payment.paymentStatus).toUpperCase() === 'SUCCESS');
+
+  if (!successPayment && String(cfOrder?.orderStatus).toUpperCase() !== 'PAID') {
+    throw new Error('Payment is not verified yet');
+  }
+
+  const paymentRecord = successPayment || payments[0] || {};
+
+  paymentIntent.status = 'SUCCESS';
+  paymentIntent.cashfreeResponse = {
+    order: cfOrder || {},
+    payments,
+    webhookPayload: webhookPayload || paymentIntent.cashfreeResponse?.webhookPayload || {},
+  };
+  paymentIntent.cashfreeOrderId = cfOrder?.orderId || paymentIntent.cashfreeOrderId;
+  paymentIntent.cashfreeOrderInternalId = cfOrder?.cfOrderId?.toString?.() || paymentIntent.cashfreeOrderInternalId;
+  paymentIntent.cashfreePaymentSessionId = cfOrder?.paymentSessionId || paymentIntent.cashfreePaymentSessionId;
+  await paymentIntent.save();
+
+  return saveConfirmedOrder({ paymentIntent, cashfreeOrder: cfOrder, paymentRecord, webhookPayload });
+};
+
+const createCashfreeOrder = async (req, res) => {
   try {
     const {
       customerName,

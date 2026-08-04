@@ -78,7 +78,14 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    if (req.originalUrl === '/api/payment/webhook' && req.method === 'POST') {
+      req.rawBody = buf;
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Socket.IO Setup - attach to the HTTP server and enforce CORS using allowedOrigins
@@ -133,6 +140,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
+app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/quotes', require('./routes/quoteRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));

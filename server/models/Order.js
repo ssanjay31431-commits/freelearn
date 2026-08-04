@@ -35,6 +35,12 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: 'pending',
     },
+    cashfreeOrderId: { type: String, default: '' },
+    cashfreeOrderInternalId: { type: String, default: '' },
+    cashfreePaymentSessionId: { type: String, default: '' },
+    cashfreeResponse: { type: mongoose.Schema.Types.Mixed, default: {} },
+    transactionId: { type: String, default: '' },
+    paymentTimestamp: { type: Date },
     razorpayOrderId: { type: String, default: '' },
     razorpayPaymentId: { type: String, default: '' },
     orderStatus: {
