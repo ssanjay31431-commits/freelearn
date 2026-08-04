@@ -7,6 +7,7 @@ const {
   getCashfreeConfig,
   buildCashfreeOrderRequest,
   getCashfreeGateway,
+  createCashfreeOrder,
   verifySignature,
 } = require('../utils/cashfreeHelper');
 
@@ -178,7 +179,7 @@ const buildNotifyUrl = () => {
   return `${backendUrl}/api/payment/webhook`;
 };
 
-const createCashfreeOrder = async (req, res) => {
+const createCashfreeOrderHandler = async (req, res) => {
   try {
     const {
       customerName,
@@ -243,20 +244,29 @@ const createCashfreeOrder = async (req, res) => {
       paymentIntent = new PaymentIntent(paymentIntentPayload);
     }
 
-    const cfConfig = getCashfreeConfig();
-    const cfOrderRequest = buildCashfreeOrderRequest({
-      orderId,
-      totalAmount: amounts.amountPaid,
-      customerEmail,
-      customerPhone,
-      customerName,
-      notifyUrl: buildNotifyUrl(),
-      returnUrl: buildReturnUrl(orderId),
-      paymentMethods: 'upi,card,netbanking',
-    });
+    let cfResponse;
+    try {
+      cfResponse = await createCashfreeOrder({
+        orderId,
+        totalAmount: amounts.amountPaid,
+        customerEmail,
+        customerPhone,
+        customerName,
+        notifyUrl: buildNotifyUrl(),
+        returnUrl: buildReturnUrl(orderId),
+        paymentMethods: 'upi,nb,cc',
+      });
+    } catch (error) {
+      console.error('Cashfree create order error:', error.message || error);
+      console.error('Cashfree create order details:', error.response?.data || error.details || error.body || null);
+      return res.status(500).json({
+        success: false,
+        message: 'Cashfree order creation failed.',
+        error: error.message || String(error),
+        details: error.response?.data || error.details || error.body || null,
+      });
+    }
 
-    const gateway = getCashfreeGateway();
-    const cfResponse = await gateway.orderCreate(cfConfig, cfOrderRequest);
     const cfOrder = cfResponse?.cfOrder || {};
 
     paymentIntent.cashfreeOrderId = cfOrder.orderId || '';
@@ -412,7 +422,7 @@ const cashfreeWebhookHandler = async (req, res) => {
 };
 
 module.exports = {
-  createCashfreeOrder,
+  createCashfreeOrder: createCashfreeOrderHandler,
   verifyCashfreePayment,
   cashfreeWebhookHandler,
 };

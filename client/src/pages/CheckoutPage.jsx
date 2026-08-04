@@ -48,6 +48,9 @@ export const CheckoutPage = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const formattedAmount = Number(amountToPayNow).toFixed(2);
+  const upiQrValue = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent('S Sanjay')}&am=${encodeURIComponent(formattedAmount)}&cu=INR&tn=${encodeURIComponent('VibeForge Order Payment')}`;
+
   // Pre-warm / Wake up Render backend server in advance when customer lands on Checkout Page
   useEffect(() => {
     if (import.meta.env.VITE_API_URL) {
@@ -268,7 +271,7 @@ export const CheckoutPage = () => {
                 <div className="inline-block p-3 bg-white rounded-2xl border border-slate-200 shadow-md">
                     <div className="bg-white p-6 inline-flex items-center justify-center rounded-2xl">
                       <QRCode
-                        value={`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent('S Sanjay')}&am=${amountToPayNow}&cu=INR&tn=${encodeURIComponent('VibeForge Order Payment')}`}
+                        value={upiQrValue}
                         size={180}
                         level="M"
                         includeMargin={false}
