@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search, CheckCircle2, Clock, Download, Package, MessageCircle, Mail, AlertTriangle, X } from 'lucide-react';
+import { Search, CheckCircle2, Clock, Download, Package, MessageCircle, Mail, AlertTriangle, X, Zap, Sparkles, ShieldCheck } from 'lucide-react';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 import { getFirestoreOrderById, cancelFirestoreOrder } from '../firebase/dbService';
 import axiosClient from '../api/axiosClient';
@@ -19,6 +19,7 @@ export const OrderTrackingPage = () => {
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState('');
   const [error, setError] = useState('');
+  const [isResumingPayment, setIsResumingPayment] = useState(false);
 
   const paymentReturn = searchParams.get('paymentReturn') === 'true';
 
@@ -105,7 +106,7 @@ export const OrderTrackingPage = () => {
   const verifyPaymentReturn = async (idToVerify) => {
     setIsVerifyingPayment(true);
     setError('');
-    setVerifyMessage('Verifying your payment. This may take a few seconds...');
+    setVerifyMessage('Verifying your payment with Cashfree. Please wait a moment...');
 
     const maxAttempts = 4;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -113,7 +114,7 @@ export const OrderTrackingPage = () => {
         const res = await axiosClient.post('/payment/verify', { orderId: idToVerify });
         if (res.data?.success && res.data.order) {
           setOrder(res.data.order);
-          setVerifyMessage('Payment verified and order confirmed. Redirecting you to the order page...');
+          setVerifyMessage('Payment verified & order confirmed! Loading your project tracking...');
           setTimeout(() => {
             navigate(`/track?id=${encodeURIComponent(idToVerify)}`, { replace: true });
           }, 1000);
@@ -135,11 +136,11 @@ export const OrderTrackingPage = () => {
       }
 
       if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
 
-    setError('Payment verification is still pending. Refresh this page in a few seconds to complete confirmation.');
+    setError('Payment verification is taking longer than expected. Refresh this page in a few seconds to update.');
     setVerifyMessage('');
     setIsVerifyingPayment(false);
   };
@@ -168,9 +169,6 @@ export const OrderTrackingPage = () => {
         setOrder(null);
         setLoading(false);
         return;
-      }
-      if (apiErr.response?.status === 404) {
-        // Fall through to Firestore
       }
     }
 
@@ -203,7 +201,41 @@ export const OrderTrackingPage = () => {
   };
 
   const handleDownloadInvoice = () => {
-    if (order) generateInvoicePDF(order);
+    if (order?.invoiceUrl) {
+      window.open(order.invoiceUrl, '_blank');
+    } else if (order) {
+      generateInvoicePDF(order);
+    }
+  };
+
+  const handleResumePayment = async () => {
+    if (!order) return;
+    setIsResumingPayment(true);
+    try {
+      const paymentPayload = {
+        orderId: order.orderId,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerPhone: order.customerPhone,
+        address: order.address,
+        items: order.items,
+        paymentType: order.paymentType,
+        paymentMethod: order.paymentMethod,
+        totalAmount: order.totalAmount,
+      };
+      const response = await axiosClient.post('/payment/create-order', paymentPayload);
+      const paymentUrl = response?.data?.paymentUrl;
+      if (paymentUrl) {
+        window.location.href = paymentUrl;
+      } else {
+        alert('Unable to resume Cashfree payment. Please try again.');
+      }
+    } catch (err) {
+      console.error('Resume payment error:', err);
+      alert('Failed to resume payment. Please contact support.');
+    } finally {
+      setIsResumingPayment(false);
+    }
   };
 
   const handleCancelSubmit = async (e) => {
@@ -225,9 +257,9 @@ export const OrderTrackingPage = () => {
 
   const getStageIndex = (stage) => {
     if (!stage) return 0;
-    if (stage === 'Pending') return 0;
+    if (stage === 'Pending' || stage === 'PAYMENT_PENDING') return 0;
     const idx = timelineStages.indexOf(stage);
-    return idx === -1 ? 0 : idx;
+    return idx === -1 ? 1 : idx;
   };
 
   const formatLastUpdated = (ord) => {
@@ -364,35 +396,59 @@ export const OrderTrackingPage = () => {
         {order && (
           <div className="space-y-8 animate-in fade-in">
 
-            {/* Success Banner if New Order */}
-            {isNewOrder && (
-              <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-300 shadow-lg space-y-4">
+            {/* Resume Payment Alert Banner if PENDING */}
+            {String(order.paymentStatus || '').toUpperCase() === 'PENDING' && (
+              <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 shadow-lg space-y-3 animate-in fade-in">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-xl shrink-0 shadow-md">
-                    ✓
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold text-lg shrink-0 shadow-sm">
+                    ⚡
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-emerald-950">Order #{order.orderId} Placed Successfully!</h3>
-                    <p className="text-xs font-extrabold text-emerald-800">
-                      Your order has been recorded in MongoDB. Status: <span className="underline">{order.orderStatus || order.statusTimeline || 'Order Received'}</span>. Email Status: <span className="underline">{order.emailStatus || 'NOT_SENT'}</span>.
+                    <h3 className="text-base font-extrabold text-amber-950">Payment Pending for Order #{order.orderId}</h3>
+                    <p className="text-xs text-amber-900 font-semibold mt-0.5">
+                      Your order has been registered in our database. Complete your Cashfree payment now to start project development immediately!
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <a
-                    href={getCustomerWhatsAppUrl(order)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-md flex items-center gap-2 transition-all cursor-pointer"
+                <div className="pt-2 flex items-center gap-3">
+                  <button
+                    onClick={handleResumePayment}
+                    disabled={isResumingPayment}
+                    className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
-                    <MessageCircle className="w-4 h-4 fill-white text-emerald-600" />
-                    <span>WhatsApp Receipt</span>
-                  </a>
+                    <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
+                    <span>{isResumingPayment ? 'Opening Cashfree Payment...' : 'Resume Payment Now'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
+            {/* Automated Success Status Banner when PAID */}
+            {String(order.paymentStatus || '').toUpperCase() === 'PAID' && (
+              <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-300 shadow-md flex flex-wrap items-center justify-between gap-4 animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-lg shrink-0 shadow-md">
+                    ✓
+                  </div>
+                  <div>
+                    <div className="text-sm font-black text-emerald-950 flex flex-wrap items-center gap-2">
+                      <span className="bg-emerald-200/80 px-2 py-0.5 rounded-lg text-emerald-900 text-xs">Payment Successful</span>
+                      <span className="text-slate-400">•</span>
+                      <span className="bg-emerald-200/80 px-2 py-0.5 rounded-lg text-emerald-900 text-xs">Order Confirmed</span>
+                      <span className="text-slate-400">•</span>
+                      <span className="bg-indigo-600 text-white px-2.5 py-0.5 rounded-lg text-xs font-bold">Project Started</span>
+                    </div>
+                    <p className="text-xs text-emerald-800 font-semibold mt-1">
+                      Cashfree Payment ID: <strong className="text-slate-900">{order.cfPaymentId || order.transactionId || order.cashfreeOrderId}</strong> • Amount Paid: <strong className="text-emerald-900">₹{order.amountPaid}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
                   <button
                     onClick={handleDownloadInvoice}
-                    className="px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                    className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition-all shadow-md flex items-center gap-2 cursor-pointer"
                   >
                     <Download className="w-4 h-4 text-white" />
                     <span>PDF Invoice</span>
@@ -409,7 +465,7 @@ export const OrderTrackingPage = () => {
                     <span className="text-xs text-indigo-700 font-black">Order ID: #{order.orderId}</span>
                     
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
-                      (order.orderStatus || order.statusTimeline) === 'Confirmed'
+                      (order.orderStatus || order.statusTimeline) === 'Confirmed' || (order.orderStatus || order.statusTimeline) === 'CONFIRMED'
                         ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                         : (order.orderStatus || order.statusTimeline) === 'Cancelled' || (order.orderStatus || order.statusTimeline) === 'Rejected'
                         ? 'bg-rose-100 text-rose-800 border-rose-300'
@@ -423,7 +479,7 @@ export const OrderTrackingPage = () => {
                         ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                         : 'bg-amber-100 text-amber-800 border-amber-300'
                     }`}>
-                      Payment: {order.paymentStatus || 'PAID'}
+                      Payment: {order.paymentStatus || 'PENDING'}
                     </span>
 
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${

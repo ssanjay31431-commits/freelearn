@@ -453,7 +453,8 @@ const getAdminStats = async (req, res) => {
 const getAllOrders = async (req, res) => {
   try {
     const orders = await getCombinedOrders();
-    res.json(orders);
+    const paidOrders = orders.filter((o) => String(o.paymentStatus || '').toUpperCase() === 'PAID');
+    res.json(paidOrders);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch orders' });
   }

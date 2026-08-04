@@ -219,12 +219,13 @@ export default function Orders() {
   };
 
   const filteredOrders = orders.filter((o) => {
+    const isPaid = String(o.paymentStatus || '').toUpperCase() === 'PAID';
     const matchesSearch =
       (o.orderId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.customerName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.customerEmail || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || o.statusTimeline === statusFilter;
-    return matchesSearch && matchesStatus;
+    return isPaid && matchesSearch && matchesStatus;
   });
 
   return (

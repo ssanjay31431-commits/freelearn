@@ -85,6 +85,9 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Static directory for generated PDF invoices
+app.use('/invoices', express.static(path.join(__dirname, 'invoices')));
+
 // Socket.IO Setup - attach to the HTTP server and enforce CORS using allowedOrigins
 const io = new Server(server, {
   path: '/socket.io',

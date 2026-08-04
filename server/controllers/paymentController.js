@@ -2,10 +2,10 @@ const express = require('express');
 const Order = require('../models/Order');
 const PaymentIntent = require('../models/PaymentIntent');
 const { sendAdminNotification, sendOrderConfirmation } = require('../utils/sendEmail');
+const { generateInvoicePDF } = require('../utils/invoiceGenerator');
 const { loadStore, saveStore } = require('../utils/fileStore');
 const {
   getCashfreeConfig,
-  buildCashfreeOrderRequest,
   getCashfreeGateway,
   createCashfreeOrder,
   verifySignature,
@@ -20,18 +20,8 @@ const syncMockOrdersStore = () => {
   saveStore(currentStore);
 };
 
-const emitOrderEvents = (io, order) => {
-  if (!io || !order) return;
-  io.emit('newOrder', order);
-  io.emit('order:created', order);
-  io.emit('notification:order', {
-    title: `New Order Received! #${order.orderId}`,
-    message: `${order.customerName} ordered ${order.items?.[0]?.title || 'Service'} for ₹${order.totalAmount}`,
-    orderId: order.orderId,
-  });
-};
-
 const saveOrderBackup = (order) => {
+  if (!order) return;
   const payload = { ...order.toObject ? order.toObject() : order, _id: order._id };
   const existingIdx = mockOrdersDB.findIndex((o) => o.orderId === payload.orderId);
   if (existingIdx !== -1) {
@@ -42,90 +32,19 @@ const saveOrderBackup = (order) => {
   syncMockOrdersStore();
 };
 
-const saveConfirmedOrder = async ({ paymentIntent, cashfreeOrder, paymentRecord, webhookPayload, req }) => {
-  const orderId = paymentIntent.orderId;
-  const orderExists = await Order.findOne({ orderId });
-  if (orderExists) {
-    return orderExists;
-  }
-
-  const payload = paymentIntent.payload || {};
-  const paymentTimestampRaw = paymentRecord?.paymentTime || paymentRecord?.payment_time || webhookPayload?.tx_time || webhookPayload?.payment_time;
-  const paymentTimestamp = paymentTimestampRaw ? new Date(paymentTimestampRaw) : new Date();
-
-  const orderData = {
-    orderId,
-    user: payload.user || null,
-    customerName: payload.customerName,
-    customerEmail: payload.customerEmail,
-    customerPhone: payload.customerPhone,
-    address: payload.address || '',
-    items: payload.items || [],
-    subtotal: payload.subtotal || paymentIntent.totalAmount,
-    discount: payload.discount || 0,
-    gst: payload.gst || 0,
-    totalAmount: paymentIntent.totalAmount,
-    paymentType: paymentIntent.paymentType || payload.paymentType || 'full',
-    amountPaid: paymentIntent.amountPaid,
-    amountDue: paymentIntent.amountDue,
-    paymentMethod: paymentIntent.paymentMethod || payload.paymentMethod || 'Cashfree',
-    paymentStatus: 'PAID',
-    orderStatus: 'Confirmed',
-    statusTimeline: 'Confirmed',
-    emailStatus: 'NOT_SENT',
-    cashfreeOrderId: paymentIntent.cashfreeOrderId || '',
-    cashfreeOrderInternalId: paymentIntent.cashfreeOrderInternalId || '',
-    cashfreePaymentSessionId: paymentIntent.cashfreePaymentSessionId || '',
-    cashfreeResponse: {
-      order: cashfreeOrder || {},
-      payment: paymentRecord || {},
-      webhookPayload: webhookPayload || {},
-    },
-    transactionId: paymentRecord?.bankReference || paymentRecord?.authId || paymentRecord?.cfPaymentId?.toString() || paymentIntent.cashfreeOrderId || '',
-    paymentTimestamp,
-    createdAt: new Date(),
-  };
-
-  let order = await Order.create(orderData);
-  saveOrderBackup(order);
-
-  const io = req?.app?.get ? req.app.get('io') : null;
-  emitOrderEvents(io, order);
-
-  try {
-    const customerSent = await sendOrderConfirmation(orderData);
-    if (customerSent) {
-      order.emailStatus = 'SENT';
-      order.emailSentAt = new Date();
-      await order.save();
-      saveOrderBackup(order);
-      if (io) {
-        io.emit('orderUpdated', order);
-        io.emit('order:status_updated', order);
-        io.to(`order_${order.orderId}`).emit('orderUpdated', order);
-        io.to(`order_${order.orderId}`).emit('order:status_updated', order);
-      }
-    } else {
-      order.emailStatus = 'FAILED';
-      await order.save();
-      saveOrderBackup(order);
-    }
-  } catch (error) {
-    order.emailStatus = 'FAILED';
-    await order.save();
-    console.error('❌ Error sending confirmation email after payment verification:', error.message || error);
-  }
-
-  await sendAdminNotification({
-    subject: '🚀 New Paid Order Received',
-    customerName: order.customerName,
-    customerEmail: order.customerEmail,
-    customerPhone: order.customerPhone,
-    message: `Paid Order #${order.orderId} confirmed. Total: ₹${order.totalAmount}. Transaction: ${order.transactionId}`,
-    details: order,
+const emitOrderEvents = (io, order) => {
+  if (!io || !order) return;
+  io.emit('newOrder', order);
+  io.emit('order:created', order);
+  io.emit('orderUpdated', order);
+  io.emit('order:status_updated', order);
+  io.to(`order_${order.orderId}`).emit('orderUpdated', order);
+  io.to(`order_${order.orderId}`).emit('order:status_updated', order);
+  io.emit('notification:order', {
+    title: `New Paid Order Received! #${order.orderId}`,
+    message: `${order.customerName} ordered ${order.items?.[0]?.title || 'Service'} for ₹${order.totalAmount}`,
+    orderId: order.orderId,
   });
-
-  return order;
 };
 
 const calculateOrderAmounts = (items = [], paymentType = 'full', couponCode = '', providedTotal = 0) => {
@@ -179,6 +98,9 @@ const buildNotifyUrl = () => {
   return `${backendUrl}/api/payment/webhook`;
 };
 
+/**
+ * 1. Create Pending Order in MongoDB & Generate Cashfree Payment Order
+ */
 const createCashfreeOrderHandler = async (req, res) => {
   try {
     const {
@@ -203,6 +125,48 @@ const createCashfreeOrderHandler = async (req, res) => {
       ? String(clientOrderId).trim()
       : 'VF-' + Math.floor(100000 + Math.random() * 900000);
 
+    // Save pending order to MongoDB
+    const pendingOrderData = {
+      orderId,
+      user: req.user ? (req.user.id || req.user._id) : null,
+      customerName,
+      customerEmail,
+      customerPhone,
+      address: address || '',
+      items: items || [],
+      subtotal: amounts.subtotal,
+      discount: amounts.discount,
+      gst: amounts.gst,
+      totalAmount: amounts.totalAmount,
+      paymentType: paymentType || 'full',
+      amountPaid: amounts.amountPaid,
+      amountDue: amounts.amountDue,
+      paymentMethod: paymentMethod || 'Cashfree',
+      paymentStatus: 'PENDING',
+      orderStatus: 'PAYMENT_PENDING',
+      emailStatus: 'NOT_SENT',
+      adminStatus: 'WAITING_FOR_PAYMENT',
+      statusTimeline: 'PAYMENT_PENDING',
+      cashfreeOrderId: orderId,
+    };
+
+    let order = await Order.findOne({ orderId });
+    if (order) {
+      if (order.paymentStatus === 'PAID') {
+        return res.status(400).json({
+          success: false,
+          message: 'Order has already been paid for.',
+          orderId: order.orderId,
+        });
+      }
+      Object.assign(order, pendingOrderData);
+      await order.save();
+    } else {
+      order = await Order.create(pendingOrderData);
+    }
+    saveOrderBackup(order);
+
+    // Save PaymentIntent for redundancy
     const paymentIntentPayload = {
       orderId,
       status: 'PENDING',
@@ -217,24 +181,7 @@ const createCashfreeOrderHandler = async (req, res) => {
       customerPhone,
       address: address || '',
       items: items || [],
-      payload: {
-        orderId,
-        user: req.user ? (req.user.id || req.user._id) : null,
-        customerName,
-        customerEmail,
-        customerPhone,
-        address: address || '',
-        items: items || [],
-        subtotal: amounts.subtotal,
-        discount: amounts.discount,
-        gst: amounts.gst,
-        totalAmount: amounts.totalAmount,
-        paymentType: paymentType || 'full',
-        amountPaid: amounts.amountPaid,
-        amountDue: amounts.amountDue,
-        paymentMethod: paymentMethod || 'Cashfree',
-        couponCode: couponCode || '',
-      },
+      payload: pendingOrderData,
     };
 
     let paymentIntent = await PaymentIntent.findOne({ orderId });
@@ -244,6 +191,7 @@ const createCashfreeOrderHandler = async (req, res) => {
       paymentIntent = new PaymentIntent(paymentIntentPayload);
     }
 
+    // Call Cashfree API to create order session
     let cfResponse;
     try {
       cfResponse = await createCashfreeOrder({
@@ -257,8 +205,8 @@ const createCashfreeOrderHandler = async (req, res) => {
         paymentMethods: 'upi,nb,cc',
       });
     } catch (error) {
-      console.error('Cashfree create order error:', error.message || error);
-      console.error('Cashfree create order details:', error.response?.data || error.details || error.body || null);
+      console.error('❌ Cashfree create order error:', error.message || error);
+      console.error('Cashfree error details:', error.response?.data || error.details || error.body || null);
       return res.status(500).json({
         success: false,
         message: 'Cashfree order creation failed.',
@@ -269,7 +217,14 @@ const createCashfreeOrderHandler = async (req, res) => {
 
     const cfOrder = cfResponse?.cfOrder || {};
 
-    paymentIntent.cashfreeOrderId = cfOrder.orderId || '';
+    order.cashfreeOrderId = cfOrder.orderId || orderId;
+    order.cashfreeOrderInternalId = cfOrder.cfOrderId?.toString?.() || '';
+    order.cashfreePaymentSessionId = cfOrder.paymentSessionId || '';
+    order.cashfreeResponse = { order: cfOrder };
+    await order.save();
+    saveOrderBackup(order);
+
+    paymentIntent.cashfreeOrderId = cfOrder.orderId || orderId;
     paymentIntent.cashfreeOrderInternalId = cfOrder.cfOrderId?.toString?.() || '';
     paymentIntent.cashfreePaymentSessionId = cfOrder.paymentSessionId || '';
     paymentIntent.cashfreeResponse = { order: cfOrder };
@@ -280,7 +235,9 @@ const createCashfreeOrderHandler = async (req, res) => {
       ? 'https://www.cashfree.com/pg/checkout/order'
       : 'https://sandbox.cashfree.com/pg/checkout/order';
     const paymentUrl = cfOrder.paymentLink ||
-      (cfOrder.orderToken
+      (cfOrder.paymentSessionId
+        ? `${checkoutBase}?payment_session_id=${encodeURIComponent(cfOrder.paymentSessionId)}`
+        : cfOrder.orderToken
         ? `${checkoutBase}?order_id=${encodeURIComponent(orderId)}&order_token=${encodeURIComponent(cfOrder.orderToken)}`
         : null);
 
@@ -292,92 +249,204 @@ const createCashfreeOrderHandler = async (req, res) => {
       success: true,
       orderId,
       paymentUrl,
-      cashfreeOrderId: paymentIntent.cashfreeOrderId,
-      paymentSessionId: paymentIntent.cashfreePaymentSessionId,
+      cashfreeOrderId: order.cashfreeOrderId,
+      paymentSessionId: order.cashfreePaymentSessionId,
     });
   } catch (error) {
-    console.error('❌ Cashfree create order error:', error.message || error);
+    console.error('❌ Cashfree create order handler error:', error.message || error);
     return res.status(500).json({ success: false, message: 'Cashfree order creation error', error: error.message || String(error) });
   }
 };
 
-const reconcilePaymentStatus = async (paymentIntent, webhookPayload = null, req = null) => {
-  if (!paymentIntent) {
-    throw new Error('Payment intent not found for reconciliation');
+/**
+ * Reconcile Payment Status using Cashfree API (Webhooks & Return URL)
+ * Idempotent, transaction-safe, dispatches emails, invoices & socket events.
+ */
+const reconcilePaymentStatus = async ({ orderId, cashfreeOrderId, webhookPayload = null, req = null }) => {
+  const searchId = orderId || cashfreeOrderId;
+  if (!searchId) {
+    throw new Error('Missing order ID for payment reconciliation');
   }
 
+  // Check if order exists in MongoDB
+  let existingOrder = await Order.findOne({ $or: [{ orderId: searchId }, { cashfreeOrderId: searchId }] });
+  
+  // Idempotency check: If already paid, return immediately
+  if (existingOrder && existingOrder.paymentStatus === 'PAID') {
+    console.log(`[Reconcile] Order #${existingOrder.orderId} is ALREADY PAID. Skipping duplicate processing.`);
+    return existingOrder;
+  }
+
+  // Fetch status directly from Cashfree API
   const config = getCashfreeConfig();
   const gateway = getCashfreeGateway();
-  const cfOrderResponse = await gateway.getOrder(config, paymentIntent.orderId);
+  const cfOrderResponse = await gateway.getOrder(config, searchId);
   const cfOrder = cfOrderResponse?.cfOrder || {};
-  const paymentResult = await gateway.getPaymentsForOrder(config, paymentIntent.orderId);
+  const paymentResult = await gateway.getPaymentsForOrder(config, searchId);
   const payments = paymentResult?.cfPaymentsEntities || [];
   const successPayment = payments.find((payment) => String(payment.paymentStatus).toUpperCase() === 'SUCCESS');
 
-  const orderStatus = String(cfOrder.orderStatus || '').toUpperCase();
-  if (!successPayment && orderStatus !== 'PAID') {
-    throw new Error('Cashfree payment has not reached a successful status yet');
+  const cfOrderStatus = String(cfOrder.orderStatus || '').toUpperCase();
+  const isPaidSuccess = Boolean(successPayment) || cfOrderStatus === 'PAID';
+
+  if (!isPaidSuccess) {
+    // Payment failed or is still pending
+    if (existingOrder && ['FAILED', 'CANCELLED', 'EXPIRED', 'USER_DROPPED'].includes(cfOrderStatus)) {
+      existingOrder.paymentStatus = 'FAILED';
+      existingOrder.orderStatus = 'PAYMENT_FAILED';
+      existingOrder.statusTimeline = 'PAYMENT_FAILED';
+      existingOrder.adminStatus = 'PAYMENT_FAILED';
+      existingOrder.transactionStatus = 'FAILED';
+      await existingOrder.save();
+      saveOrderBackup(existingOrder);
+    }
+    throw new Error(`Cashfree payment status for #${searchId} is '${cfOrderStatus || 'PENDING'}', not successful yet.`);
   }
 
-  paymentIntent.status = 'SUCCESS';
-  paymentIntent.cashfreeResponse = {
-    order: cfOrder || {},
-    payments,
-    webhookPayload: webhookPayload || paymentIntent.cashfreeResponse?.webhookPayload || {},
-  };
-  paymentIntent.cashfreeOrderId = cfOrder.orderId || paymentIntent.cashfreeOrderId;
-  paymentIntent.cashfreeOrderInternalId = cfOrder.cfOrderId?.toString?.() || paymentIntent.cashfreeOrderInternalId;
-  paymentIntent.cashfreePaymentSessionId = cfOrder.paymentSessionId || paymentIntent.cashfreePaymentSessionId;
-  await paymentIntent.save();
-
-  if (await Order.exists({ orderId: paymentIntent.orderId })) {
-    return Order.findOne({ orderId: paymentIntent.orderId });
-  }
-
+  // Atomic Update to PAID status (Idempotent lock)
   const paymentRecord = successPayment || payments[0] || {};
   const paymentTimestampRaw = paymentRecord.paymentTime || paymentRecord.payment_time || webhookPayload?.tx_time || webhookPayload?.payment_time;
   const paymentTimestamp = paymentTimestampRaw ? new Date(paymentTimestampRaw) : new Date();
+  const cfPaymentId = paymentRecord.cfPaymentId?.toString() || paymentRecord.bankReference || paymentRecord.authId || '';
+  const transactionId = cfPaymentId || cfOrder.orderId || searchId;
 
-  return saveConfirmedOrder({ paymentIntent, cashfreeOrder: cfOrder, paymentRecord, webhookPayload, req });
+  let order = await Order.findOneAndUpdate(
+    {
+      $or: [{ orderId: searchId }, { cashfreeOrderId: searchId }],
+      paymentStatus: { $ne: 'PAID' },
+    },
+    {
+      $set: {
+        paymentStatus: 'PAID',
+        orderStatus: 'CONFIRMED',
+        statusTimeline: 'CONFIRMED',
+        emailStatus: 'SENDING',
+        adminStatus: 'PAID',
+        cashfreeOrderId: cfOrder.orderId || searchId,
+        cashfreeOrderInternalId: cfOrder.cfOrderId?.toString?.() || '',
+        cashfreePaymentSessionId: cfOrder.paymentSessionId || '',
+        cfPaymentId,
+        transactionId,
+        transactionStatus: 'SUCCESS',
+        paymentTimestamp,
+        amountPaid: Number(paymentRecord.paymentAmount || cfOrder.orderAmount || existingOrder?.amountPaid || 0),
+        cashfreeResponse: { order: cfOrder, payment: paymentRecord, webhookPayload },
+      },
+    },
+    { new: true }
+  );
+
+  // If order was null, another process already set paymentStatus = 'PAID'
+  if (!order) {
+    order = await Order.findOne({ $or: [{ orderId: searchId }, { cashfreeOrderId: searchId }] });
+    return order;
+  }
+
+  // Update PaymentIntent if present
+  let paymentIntent = await PaymentIntent.findOne({ orderId: order.orderId });
+  if (paymentIntent) {
+    paymentIntent.status = 'SUCCESS';
+    paymentIntent.cashfreeResponse = { order: cfOrder, payments, webhookPayload };
+    await paymentIntent.save();
+  }
+
+  saveOrderBackup(order);
+
+  // 1. Generate Invoice PDF
+  try {
+    const { invoicePath, invoiceUrl } = await generateInvoicePDF(order);
+    order.invoicePath = invoicePath;
+    order.invoiceUrl = invoiceUrl;
+    await order.save();
+    saveOrderBackup(order);
+    console.log(`✔ Invoice PDF generated for order #${order.orderId}: ${invoiceUrl}`);
+  } catch (invoiceErr) {
+    console.error('❌ PDF Invoice Generation Error:', invoiceErr.message || invoiceErr);
+  }
+
+  // 2. Send Confirmation Email with Retries
+  let emailSent = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const sent = await sendOrderConfirmation(order);
+      if (sent) {
+        emailSent = true;
+        break;
+      }
+    } catch (e) {
+      console.error(`❌ [Email Attempt ${attempt}/3] Error sending confirmation email for #${order.orderId}:`, e.message || e);
+    }
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+    }
+  }
+
+  if (emailSent) {
+    order.emailStatus = 'SENT';
+    order.emailSentAt = new Date();
+  } else {
+    order.emailStatus = 'FAILED';
+  }
+  await order.save();
+  saveOrderBackup(order);
+
+  // 3. Emit Socket.IO Events
+  const io = req?.app?.get ? req.app.get('io') : null;
+  emitOrderEvents(io, order);
+
+  // 4. Send Admin Notification Alert
+  try {
+    await sendAdminNotification({
+      subject: '🚀 New Paid Order Received',
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      customerPhone: order.customerPhone,
+      message: `Paid Order #${order.orderId} confirmed. Total: ₹${order.totalAmount}. CF Payment ID: ${order.cfPaymentId || order.transactionId}`,
+      details: order,
+    });
+  } catch (adminEmailErr) {
+    console.error('❌ Error sending admin notification email:', adminEmailErr.message || adminEmailErr);
+  }
+
+  return order;
 };
 
-const findPaymentIntent = async ({ orderId, cashfreeOrderId }) => {
-  if (orderId) {
-    const intent = await PaymentIntent.findOne({ orderId });
-    if (intent) return intent;
-  }
-  if (cashfreeOrderId) {
-    const intent = await PaymentIntent.findOne({ cashfreeOrderId });
-    if (intent) return intent;
-  }
-  return null;
-};
-
+/**
+ * 4. Verify Cashfree Payment (Return URL Endpoint)
+ */
 const verifyCashfreePayment = async (req, res) => {
   try {
     const { orderId, cashfreeOrderId } = req.body;
-    const paymentIntent = await findPaymentIntent({ orderId, cashfreeOrderId });
-    if (!paymentIntent) {
-      return res.status(404).json({ success: false, message: 'Payment intent not found for verification.' });
+    const targetOrderId = orderId || cashfreeOrderId;
+
+    if (!targetOrderId) {
+      return res.status(400).json({ success: false, message: 'Missing order ID for verification.' });
     }
 
-    if (paymentIntent.status === 'SUCCESS') {
-      const existingOrder = await Order.findOne({ orderId: paymentIntent.orderId });
-      return res.json({ success: true, message: 'Payment already verified.', order: existingOrder });
-    }
-
-    const order = await reconcilePaymentStatus(paymentIntent, null, req);
-    return res.json({ success: true, message: 'Payment verified and order created.', order });
+    const order = await reconcilePaymentStatus({ orderId: targetOrderId, cashfreeOrderId, req });
+    return res.json({
+      success: true,
+      message: 'Payment verified and order confirmed.',
+      order,
+    });
   } catch (error) {
     console.error('❌ Cashfree verify error:', error.message || error);
-    return res.status(500).json({ success: false, message: 'Cashfree payment verification failed.', error: error.message || String(error) });
+    return res.status(500).json({
+      success: false,
+      message: 'Cashfree payment verification failed.',
+      error: error.message || String(error),
+    });
   }
 };
 
+/**
+ * 12 & 14. Cashfree Webhook Handler (Primary Trigger)
+ */
 const cashfreeWebhookHandler = async (req, res) => {
   try {
     const rawBody = req.rawBody || (req.body ? JSON.stringify(req.body) : '');
     const signature = req.headers['x-webhook-signature'] || req.headers['x-cashfree-signature'] || req.headers['x-signature'];
+
     if (!signature) {
       return res.status(400).json({ success: false, message: 'Missing webhook signature.' });
     }
@@ -398,26 +467,26 @@ const cashfreeWebhookHandler = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Webhook payload is missing order ID.' });
     }
 
-    const paymentIntent = await findPaymentIntent({ orderId, cashfreeOrderId: payload.cf_order_id || payload.data?.cf_order_id });
-    if (!paymentIntent) {
-      return res.status(404).json({ success: false, message: 'Payment intent not found for webhook order.' });
-    }
+    const order = await reconcilePaymentStatus({
+      orderId,
+      cashfreeOrderId: payload.cf_order_id || payload.data?.cf_order_id,
+      webhookPayload: payload,
+      req,
+    });
 
-    if (paymentIntent.status === 'SUCCESS') {
-      return res.json({ success: true, message: 'Webhook ignored; payment already processed.' });
-    }
-
-    const statusValue = String(payload.orderStatus || payload.txStatus || payload.status || payload.data?.orderStatus || payload.data?.txStatus || '').toUpperCase();
-    const isSuccess = ['SUCCESS', 'PAID'].includes(statusValue);
-    if (!isSuccess) {
-      return res.json({ success: true, message: 'Webhook received; payment not yet successful.', status: statusValue });
-    }
-
-    const order = await reconcilePaymentStatus(paymentIntent, payload);
-    return res.json({ success: true, message: 'Webhook payment processed.', orderId: order.orderId, order });
+    return res.json({
+      success: true,
+      message: 'Webhook payment processed successfully.',
+      orderId: order.orderId,
+      order,
+    });
   } catch (error) {
     console.error('❌ Cashfree webhook error:', error.message || error);
-    return res.status(500).json({ success: false, message: 'Webhook processing failed.', error: error.message || String(error) });
+    return res.status(500).json({
+      success: false,
+      message: 'Webhook processing failed.',
+      error: error.message || String(error),
+    });
   }
 };
 

@@ -381,7 +381,7 @@ export const CheckoutPage = () => {
                 className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {loading ? (
-                  <span>Processing & Notifying Admin...</span>
+                  <span>Creating Order & Redirecting to Cashfree...</span>
                 ) : (
                   <>
                     <span>Confirm Order & Pay ₹{amountToPayNow}</span>
