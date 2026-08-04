@@ -1,6 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CreditCard, ShieldCheck, CheckCircle2, Lock, ArrowRight, Zap, Building, Copy, Check, QrCode, MessageCircle, ExternalLink, Sparkles } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import { CartContext } from '../context/CartContext';
 import { AuthContext } from '../context/AuthContext';
 import axiosClient from '../api/axiosClient';
@@ -265,13 +266,14 @@ export const CheckoutPage = () => {
               {/* GPay QR Display Card */}
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center space-y-4">
                 <div className="inline-block p-3 bg-white rounded-2xl border border-slate-200 shadow-md">
-                  <img
-                    src="/gpay_qr.jpg"
-                    alt="S Sanjay GPay QR Code"
-                    className="w-56 h-auto mx-auto rounded-xl"
-                  />
-                </div>
-
+                    <div className="bg-white p-6 inline-flex items-center justify-center rounded-2xl">
+                      <QRCode
+                        value={`upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent('S Sanjay')}&am=${amountToPayNow}&cu=INR&tn=${encodeURIComponent('VibeForge Order Payment')}`}
+                        size={180}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    </div>
                 <div className="space-y-2">
                   <div className="text-sm font-black text-slate-900">Account Holder: S Sanjay</div>
                   <div className="text-xs text-slate-600 font-semibold">Scan with Google Pay, PhonePe, Paytm, BHIM, or any UPI App</div>
