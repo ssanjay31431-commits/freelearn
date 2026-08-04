@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, CheckCircle2, Clock, Download, Package, MessageCircle, Mail, AlertTriangle, X } from 'lucide-react';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 import { getFirestoreOrderById, cancelFirestoreOrder } from '../firebase/dbService';
@@ -8,6 +8,7 @@ import { io } from 'socket.io-client';
 
 export const OrderTrackingPage = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const queryId = searchParams.get('id') || '';
   const isNewOrder = searchParams.get('newOrder') === 'true';
 
@@ -90,10 +91,10 @@ export const OrderTrackingPage = () => {
   };
 
   useEffect(() => {
-    if (queryId) {
+    if (queryId && !paymentReturn) {
       handleTrack(queryId, '');
     }
-  }, [queryId]);
+  }, [queryId, paymentReturn]);
 
   useEffect(() => {
     if (paymentReturn && queryId) {
@@ -112,7 +113,10 @@ export const OrderTrackingPage = () => {
         const res = await axiosClient.post('/payment/verify', { orderId: idToVerify });
         if (res.data?.success && res.data.order) {
           setOrder(res.data.order);
-          setVerifyMessage('Payment verified and order confirmed. Your confirmation page is ready.');
+          setVerifyMessage('Payment verified and order confirmed. Redirecting you to the order page...');
+          setTimeout(() => {
+            navigate(`/track?id=${encodeURIComponent(idToVerify)}`, { replace: true });
+          }, 1000);
           setIsVerifyingPayment(false);
           return;
         }
