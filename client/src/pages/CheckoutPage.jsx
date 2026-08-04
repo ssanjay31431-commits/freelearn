@@ -274,6 +274,7 @@ export const CheckoutPage = () => {
                         includeMargin={false}
                       />
                     </div>
+                </div>
                 <div className="space-y-2">
                   <div className="text-sm font-black text-slate-900">Account Holder: S Sanjay</div>
                   <div className="text-xs text-slate-600 font-semibold">Scan with Google Pay, PhonePe, Paytm, BHIM, or any UPI App</div>
