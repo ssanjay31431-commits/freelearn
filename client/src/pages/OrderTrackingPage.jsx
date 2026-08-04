@@ -212,11 +212,12 @@ export const OrderTrackingPage = () => {
     if (!order) return;
     setIsResumingPayment(true);
     try {
+      const cleanPhone = (order.customerPhone || '').replace(/\D/g, '').slice(-10);
       const paymentPayload = {
         orderId: order.orderId,
         customerName: order.customerName,
         customerEmail: order.customerEmail,
-        customerPhone: order.customerPhone,
+        customerPhone: cleanPhone,
         address: order.address,
         items: order.items,
         paymentType: order.paymentType,

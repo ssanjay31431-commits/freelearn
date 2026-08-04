@@ -65,6 +65,12 @@ export const CheckoutPage = () => {
       return;
     }
 
+    const cleanPhone = (customerPhone || '').replace(/\D/g, '').slice(-10);
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      alert('Please enter a valid 10-digit Indian phone number (e.g. 9943380320).');
+      return;
+    }
+
     setLoading(true);
     try {
       const generatedOrderId = 'VF-' + Math.floor(100000 + Math.random() * 900000);
@@ -73,7 +79,7 @@ export const CheckoutPage = () => {
         orderId: generatedOrderId,
         customerName,
         customerEmail,
-        customerPhone,
+        customerPhone: cleanPhone,
         address,
         items: cartItems,
         paymentType,

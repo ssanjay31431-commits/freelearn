@@ -9,6 +9,7 @@ const {
   getCashfreeGateway,
   createCashfreeOrder,
   verifySignature,
+  normalizePhoneNumber,
 } = require('../utils/cashfreeHelper');
 
 const initialStore = loadStore();
@@ -106,7 +107,7 @@ const createCashfreeOrderHandler = async (req, res) => {
     const {
       customerName,
       customerEmail,
-      customerPhone,
+      customerPhone: rawCustomerPhone,
       address,
       items,
       paymentType,
@@ -116,8 +117,16 @@ const createCashfreeOrderHandler = async (req, res) => {
       totalAmount: providedTotal,
     } = req.body;
 
-    if (!customerName || !customerEmail || !customerPhone || !Array.isArray(items) || items.length === 0) {
+    if (!customerName || !customerEmail || !rawCustomerPhone || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Missing required checkout fields.' });
+    }
+
+    const customerPhone = normalizePhoneNumber(rawCustomerPhone || (req.user && req.user.phone) || '');
+    if (!customerPhone || customerPhone.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid customer phone number (${rawCustomerPhone}). A valid 10-digit Indian phone number is required.`,
+      });
     }
 
     const amounts = calculateOrderAmounts(items, paymentType, couponCode, Number(providedTotal));

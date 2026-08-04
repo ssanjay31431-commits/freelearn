@@ -13,6 +13,17 @@ const SUPPORTED_API_VERSIONS = new Set(['2022-09-01', '2022-01-01']);
 const VALID_PAYMENT_METHODS = new Set(['upi', 'nb', 'cc', 'dc', 'emi', 'paylater', 'app', 'paypal', 'ppc', 'ccc', 'applepay']);
 const VALID_PHONE_REGEX = /^[6-9]\d{9}$/;
 
+const normalizePhoneNumber = (phone) => {
+  if (!phone) return '';
+  // Remove +91, spaces, hyphens, and any non-digit characters
+  let cleanPhone = String(phone).replace(/\D/g, '');
+  // Use the last 10 digits
+  if (cleanPhone.length > 10) {
+    cleanPhone = cleanPhone.slice(-10);
+  }
+  return cleanPhone;
+};
+
 const getCashfreeOrderBaseUrl = (environment) =>
   environment === CFEnvironment.PRODUCTION ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
 
@@ -31,7 +42,8 @@ const normalizeCashfreeOrderResponse = (data) => {
 };
 
 const buildCashfreeRawOrderPayload = ({ orderId, totalAmount, customerEmail, customerPhone, customerName, notifyUrl, returnUrl, paymentMethods = 'upi,nb,cc,dc,emi,paylater,app' }) => {
-  validateCashfreeOrderPayload({ orderId, totalAmount, customerEmail, customerPhone, customerName, notifyUrl, returnUrl });
+  const normalizedPhone = normalizePhoneNumber(customerPhone);
+  validateCashfreeOrderPayload({ orderId, totalAmount, customerEmail, customerPhone: normalizedPhone, customerName, notifyUrl, returnUrl });
 
   return {
     order_id: String(orderId).trim(),
@@ -41,7 +53,7 @@ const buildCashfreeRawOrderPayload = ({ orderId, totalAmount, customerEmail, cus
       customer_id: String(orderId).trim(),
       customer_name: String(customerName).trim(),
       customer_email: String(customerEmail).trim(),
-      customer_phone: String(customerPhone).trim(),
+      customer_phone: String(normalizedPhone).trim(),
     },
     order_meta: {
       return_url: String(returnUrl).trim(),
@@ -173,8 +185,9 @@ const validateCashfreeOrderPayload = ({ orderId, totalAmount, customerEmail, cus
     throw new Error('Cashfree validation error: customerEmail must be a valid email address.');
   }
 
-  if (!customerPhone || typeof customerPhone !== 'string' || !VALID_PHONE_REGEX.test(customerPhone.trim())) {
-    throw new Error('Cashfree validation error: customerPhone is required and must be a valid 10-digit Indian phone number.');
+  const normalizedPhone = normalizePhoneNumber(customerPhone);
+  if (!normalizedPhone || normalizedPhone.length !== 10) {
+    throw new Error(`Invalid customer phone number (${customerPhone}). A valid 10-digit Indian phone number is required.`);
   }
 
   if (!notifyUrl || typeof notifyUrl !== 'string' || !notifyUrl.trim()) {
@@ -187,13 +200,14 @@ const validateCashfreeOrderPayload = ({ orderId, totalAmount, customerEmail, cus
 };
 
 const buildCashfreeOrderRequest = ({ orderId, totalAmount, customerEmail, customerPhone, customerName, notifyUrl, returnUrl, paymentMethods = 'upi,nb,cc,dc,emi,paylater,app' }) => {
-  validateCashfreeOrderPayload({ orderId, totalAmount, customerEmail, customerPhone, customerName, notifyUrl, returnUrl });
+  const normalizedPhone = normalizePhoneNumber(customerPhone);
+  validateCashfreeOrderPayload({ orderId, totalAmount, customerEmail, customerPhone: normalizedPhone, customerName, notifyUrl, returnUrl });
 
   const customerDetails = new CFCustomerDetails();
   customerDetails.customerId = String(orderId).trim();
   customerDetails.customerName = String(customerName).trim();
   customerDetails.customerEmail = String(customerEmail).trim();
-  customerDetails.customerPhone = String(customerPhone).trim();
+  customerDetails.customerPhone = String(normalizedPhone).trim();
 
   const cfOrderRequest = new CFOrderRequest();
   cfOrderRequest.orderId = String(orderId).trim();
@@ -211,6 +225,17 @@ const buildCashfreeOrderRequest = ({ orderId, totalAmount, customerEmail, custom
 };
 
 const createCashfreeOrder = async ({ orderId, totalAmount, customerName, customerEmail, customerPhone, notifyUrl, returnUrl, paymentMethods }) => {
+  const normalizedPhone = normalizePhoneNumber(customerPhone);
+  if (!normalizedPhone || normalizedPhone.length !== 10) {
+    throw new Error(`Invalid customer phone number (${customerPhone}). A valid 10-digit Indian phone number is required.`);
+  }
+
+  console.log({
+    customerName,
+    customerEmail,
+    customerPhone: normalizedPhone
+  });
+
   const config = getCashfreeConfig();
   const gateway = getCashfreeGateway();
   const orderRequest = buildCashfreeOrderRequest({
@@ -218,7 +243,7 @@ const createCashfreeOrder = async ({ orderId, totalAmount, customerName, custome
     totalAmount,
     customerName,
     customerEmail,
-    customerPhone,
+    customerPhone: normalizedPhone,
     notifyUrl,
     returnUrl,
     paymentMethods,
@@ -360,4 +385,5 @@ module.exports = {
   verifyCashfreePayment,
   getPaymentStatus,
   verifySignature,
+  normalizePhoneNumber,
 };
