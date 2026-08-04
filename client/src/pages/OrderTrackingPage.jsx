@@ -15,7 +15,11 @@ export const OrderTrackingPage = () => {
   const [emailInput, setEmailInput] = useState('');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState('');
   const [error, setError] = useState('');
+
+  const paymentReturn = searchParams.get('paymentReturn') === 'true';
 
   // Real-time Socket.IO status listener
   useEffect(() => {
@@ -90,6 +94,51 @@ export const OrderTrackingPage = () => {
       handleTrack(queryId, '');
     }
   }, [queryId]);
+
+  useEffect(() => {
+    if (paymentReturn && queryId) {
+      verifyPaymentReturn(queryId);
+    }
+  }, [paymentReturn, queryId]);
+
+  const verifyPaymentReturn = async (idToVerify) => {
+    setIsVerifyingPayment(true);
+    setError('');
+    setVerifyMessage('Verifying your payment. This may take a few seconds...');
+
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const res = await axiosClient.post('/payment/verify', { orderId: idToVerify });
+        if (res.data?.success && res.data.order) {
+          setOrder(res.data.order);
+          setVerifyMessage('Payment verified and order confirmed. Your confirmation page is ready.');
+          setIsVerifyingPayment(false);
+          return;
+        }
+
+        setVerifyMessage(res.data?.message || 'Payment verification is pending. Retrying...');
+      } catch (err) {
+        const status = err.response?.status;
+        const message = err.response?.data?.message || err.message || 'Unable to verify payment yet.';
+        if (status === 404 || status === 202 || status === 400) {
+          setVerifyMessage(message || 'Payment verification is still pending. Retrying...');
+        } else {
+          setError(message);
+          setIsVerifyingPayment(false);
+          return;
+        }
+      }
+
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+      }
+    }
+
+    setError('Payment verification is still pending. Refresh this page in a few seconds to complete confirmation.');
+    setVerifyMessage('');
+    setIsVerifyingPayment(false);
+  };
 
   const handleTrack = async (idToSearch = orderId, emailToSearch = emailInput) => {
     const searchId = (idToSearch || orderId).trim();
@@ -300,6 +349,11 @@ export const OrderTrackingPage = () => {
             </button>
           </form>
           {error && <div className="text-xs text-rose-600 mt-2 text-center font-extrabold">{error}</div>}
+          {(paymentReturn || isVerifyingPayment) && (
+            <div className="mt-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4 text-center text-xs text-slate-800 font-bold">
+              {isVerifyingPayment ? verifyMessage : 'Checking payment status and confirming your order now...'}
+            </div>
+          )}
         </div>
 
         {/* Order Details Banner & Timeline */}

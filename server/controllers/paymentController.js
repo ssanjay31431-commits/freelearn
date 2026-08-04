@@ -170,7 +170,7 @@ const calculateOrderAmounts = (items = [], paymentType = 'full', couponCode = ''
 
 const buildReturnUrl = (orderId) => {
   const clientUrl = (process.env.CLIENT_URL || process.env.ADMIN_URL || 'http://localhost:5173').replace(/\/$/, '');
-  return `${clientUrl}/track?id=${encodeURIComponent(orderId)}&paymentReturn=true`;
+  return `${clientUrl}/track?id=${encodeURIComponent(orderId)}&paymentReturn=true&newOrder=true`;
 };
 
 const buildNotifyUrl = () => {
