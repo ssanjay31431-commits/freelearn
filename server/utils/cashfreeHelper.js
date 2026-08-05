@@ -24,10 +24,12 @@ const normalizePhoneNumber = (phone) => {
   return cleanPhone;
 };
 
-const getCashfreeOrderBaseUrl = (environment) =>
-  environment === CFEnvironment.PRODUCTION ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+const getCashfreeApiBaseUrl = (environment) => {
+  const isProd = environment === CFEnvironment.PRODUCTION || String(process.env.CASHFREE_ENV || '').toUpperCase() === 'PRODUCTION';
+  return isProd ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+};
 
-const getCashfreeOrderUrl = (environment) => `${getCashfreeOrderBaseUrl(environment)}/orders`;
+const getCashfreeOrderUrl = (environment) => `${getCashfreeApiBaseUrl(environment)}/orders`;
 
 const normalizeCashfreeOrderResponse = (data) => {
   if (!data || typeof data !== 'object') return {};
@@ -64,9 +66,8 @@ const buildCashfreeRawOrderPayload = ({ orderId, totalAmount, customerEmail, cus
 };
 
 const createCashfreeOrderRaw = async (params) => {
-  const environment = String(process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase() === 'PRODUCTION'
-    ? CFEnvironment.PRODUCTION
-    : CFEnvironment.SANDBOX;
+  const isProd = String(process.env.CASHFREE_ENV || '').toUpperCase() === 'PRODUCTION';
+  const environment = isProd ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
   const url = getCashfreeOrderUrl(environment);
   const payload = buildCashfreeRawOrderPayload(params);
 
@@ -81,7 +82,7 @@ const createCashfreeOrderRaw = async (params) => {
     throw new Error('Missing Cashfree credentials for raw request fallback');
   }
 
-  console.log('Cashfree raw request URL:', url);
+  console.log(`[Cashfree REST Raw Request] Mode: ${isProd ? 'PRODUCTION 🚀' : 'SANDBOX 🧪'}, URL: ${url}`);
   console.log('Cashfree raw request payload:', JSON.stringify(payload, null, 2));
 
   const response = await axios.post(url, payload, {
@@ -124,8 +125,8 @@ const getCashfreeApiVersion = () => {
 };
 
 const getCashfreeConfig = () => {
-  const env = String(process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
-  const environment = env === 'PRODUCTION' ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+  const isProd = String(process.env.CASHFREE_ENV || '').toUpperCase() === 'PRODUCTION';
+  const environment = isProd ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
   const apiVersion = getCashfreeApiVersion();
   const clientId = String(process.env.CASHFREE_APP_ID || '').trim();
   const clientSecret = String(process.env.CASHFREE_SECRET_KEY || '').trim();
@@ -133,6 +134,9 @@ const getCashfreeConfig = () => {
   if (!clientId || !clientSecret) {
     throw new Error('Missing Cashfree credentials in environment variables');
   }
+
+  const maskedAppId = clientId.length > 8 ? `${clientId.substring(0, 8)}...` : '****';
+  console.log(`[Cashfree Config] Mode: ${isProd ? 'PRODUCTION 🚀' : 'SANDBOX 🧪'}, App ID: ${maskedAppId}, API Version: ${apiVersion}`);
 
   return new CFConfig(environment, apiVersion, clientId, clientSecret, 180000);
 };
@@ -274,7 +278,7 @@ const createCashfreeOrder = async ({ orderId, totalAmount, customerName, custome
     console.error('Cashfree orderCreate failed message:', err.message);
     console.error('Cashfree orderCreate failed stack:', err.stack);
 
-    const shouldFallback = err.response?.data?.code === 'request_failed' || err.statusCode === 500 || String(process.env.CASHFREE_ENV || '').toUpperCase() === 'SANDBOX';
+    const shouldFallback = err.response?.data?.code === 'request_failed' || err.statusCode === 500;
     if (shouldFallback) {
       try {
         console.warn('Cashfree SDK failed, trying raw HTTP fallback.');
@@ -318,8 +322,10 @@ const createCashfreeOrder = async ({ orderId, totalAmount, customerName, custome
 
 const getCashfreeOrderRaw = async (orderId) => {
   try {
-    const env = String(process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
-    const baseUrl = env === 'PRODUCTION' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+    const environment = String(process.env.CASHFREE_ENV || 'PRODUCTION').toUpperCase() === 'PRODUCTION'
+      ? CFEnvironment.PRODUCTION
+      : CFEnvironment.PRODUCTION;
+    const baseUrl = getCashfreeApiBaseUrl(environment);
     const url = `${baseUrl}/orders/${encodeURIComponent(orderId)}`;
     const headers = {
       'x-client-id': String(process.env.CASHFREE_APP_ID || '').trim(),
@@ -327,20 +333,33 @@ const getCashfreeOrderRaw = async (orderId) => {
       'x-api-version': getCashfreeApiVersion(),
       'Content-Type': 'application/json',
     };
+
+    console.log('Cashfree GET Order URL:', url);
+    console.log('Cashfree GET Order headers:', JSON.stringify({
+      'x-client-id': headers['x-client-id'] ? '****' : null,
+      'x-api-version': headers['x-api-version'],
+    }));
+
     const response = await axios.get(url, { headers, timeout: 30000, validateStatus: () => true });
+    console.log('Cashfree GET Order status:', response.status);
+    console.log('Cashfree GET Order response body:', JSON.stringify(response.data, null, 2));
+
     if (response.status >= 200 && response.status < 300) {
       return normalizeCashfreeOrderResponse(response.data);
     }
   } catch (err) {
     console.error(`[Cashfree REST raw order fetch error]: ${err.message}`);
+    console.error(err.stack);
   }
   return null;
 };
 
 const getCashfreePaymentsRaw = async (orderId) => {
   try {
-    const env = String(process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
-    const baseUrl = env === 'PRODUCTION' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+    const environment = String(process.env.CASHFREE_ENV || 'PRODUCTION').toUpperCase() === 'PRODUCTION'
+      ? CFEnvironment.PRODUCTION
+      : CFEnvironment.PRODUCTION;
+    const baseUrl = getCashfreeApiBaseUrl(environment);
     const url = `${baseUrl}/orders/${encodeURIComponent(orderId)}/payments`;
     const headers = {
       'x-client-id': String(process.env.CASHFREE_APP_ID || '').trim(),
@@ -348,12 +367,23 @@ const getCashfreePaymentsRaw = async (orderId) => {
       'x-api-version': getCashfreeApiVersion(),
       'Content-Type': 'application/json',
     };
+
+    console.log('Cashfree GET Payments URL:', url);
+    console.log('Cashfree GET Payments headers:', JSON.stringify({
+      'x-client-id': headers['x-client-id'] ? '****' : null,
+      'x-api-version': headers['x-api-version'],
+    }));
+
     const response = await axios.get(url, { headers, timeout: 30000, validateStatus: () => true });
+    console.log('Cashfree GET Payments status:', response.status);
+    console.log('Cashfree GET Payments response body:', JSON.stringify(response.data, null, 2));
+
     if (response.status >= 200 && response.status < 300) {
       return Array.isArray(response.data) ? response.data : [];
     }
   } catch (err) {
     console.error(`[Cashfree REST raw payments fetch error]: ${err.message}`);
+    console.error(err.stack);
   }
   return [];
 };

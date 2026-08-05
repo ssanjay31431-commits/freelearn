@@ -107,12 +107,12 @@ const calculateOrderAmounts = (items = [], paymentType = 'full', couponCode = ''
 };
 
 const buildReturnUrl = (orderId) => {
-  const clientUrl = (process.env.CLIENT_URL || process.env.ADMIN_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const clientUrl = (process.env.CLIENT_URL || process.env.ADMIN_URL || 'https://vibeforge.vercel.app').replace(/\/$/, '');
   return `${clientUrl}/track?id=${encodeURIComponent(orderId)}&paymentReturn=true`;
 };
 
 const buildNotifyUrl = () => {
-  const backendUrl = (process.env.BACKEND_URL || process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, '');
+  const backendUrl = (process.env.BACKEND_URL || process.env.API_URL || 'https://vibeforge-hq68.onrender.com').replace(/\/$/, '');
   return `${backendUrl}/api/payment/webhook`;
 };
 
@@ -261,8 +261,6 @@ const createCashfreeOrderHandler = async (req, res) => {
     paymentIntent.cashfreeResponse = { order: cfOrder };
     await paymentIntent.save();
 
-    const isProductionEnv = String(process.env.CASHFREE_ENV || '').toUpperCase() === 'PRODUCTION';
-    const environment = isProductionEnv ? 'production' : 'sandbox';
     const paymentSessionId = order.cashfreePaymentSessionId || cfOrder.paymentSessionId || cfOrder.payment_session_id || '';
 
     if (!paymentSessionId) {
@@ -282,8 +280,8 @@ const createCashfreeOrderHandler = async (req, res) => {
       cfOrderId: order.cashfreeOrderId,
       paymentSessionId,
       payment_session_id: paymentSessionId,
-      environment,
-      mode: environment,
+      environment: 'production',
+      mode: 'production',
     });
   } catch (error) {
     console.error('❌ Cashfree create order handler error:', error.message || error);
