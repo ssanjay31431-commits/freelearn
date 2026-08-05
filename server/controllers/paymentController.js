@@ -261,29 +261,28 @@ const createCashfreeOrderHandler = async (req, res) => {
     await paymentIntent.save();
 
     const isProductionEnv = String(process.env.CASHFREE_ENV || '').toUpperCase() === 'PRODUCTION';
-    const checkoutBase = isProductionEnv
-      ? 'https://www.cashfree.com/pg/checkout/order'
-      : 'https://sandbox.cashfree.com/pg/checkout/order';
-    const paymentUrl = cfOrder.paymentLink || cfOrder.payment_link ||
-      (order.cashfreePaymentSessionId
-        ? `${checkoutBase}?payment_session_id=${encodeURIComponent(order.cashfreePaymentSessionId)}`
-        : cfOrder.orderToken || cfOrder.order_token
-        ? `${checkoutBase}?order_id=${encodeURIComponent(orderId)}&order_token=${encodeURIComponent(cfOrder.orderToken || cfOrder.order_token)}`
-        : null);
+    const environment = isProductionEnv ? 'production' : 'sandbox';
+    const paymentSessionId = order.cashfreePaymentSessionId || cfOrder.paymentSessionId || cfOrder.payment_session_id || '';
 
-    if (!paymentUrl) {
-      return res.status(500).json({ success: false, message: 'Unable to build Cashfree checkout URL.' });
+    if (!paymentSessionId) {
+      return res.status(500).json({
+        success: false,
+        message: 'Cashfree API did not return a valid payment_session_id.',
+        details: cfOrder,
+      });
     }
 
-    console.log(`✅ Cashfree Order Created Successfully #${orderId}. Payment URL: ${paymentUrl}`);
+    console.log(`✅ Cashfree Order Session Created Successfully #${orderId}. Session ID: ${paymentSessionId}`);
 
     return res.status(201).json({
       success: true,
       orderId,
-      paymentUrl,
       cashfreeOrderId: order.cashfreeOrderId,
       cfOrderId: order.cashfreeOrderId,
-      paymentSessionId: order.cashfreePaymentSessionId,
+      paymentSessionId,
+      payment_session_id: paymentSessionId,
+      environment,
+      mode: environment,
     });
   } catch (error) {
     console.error('❌ Cashfree create order handler error:', error.message || error);

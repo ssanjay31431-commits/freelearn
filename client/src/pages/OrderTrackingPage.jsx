@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, CheckCircle2, Clock, Download, Package, MessageCircle, Mail, AlertTriangle, X, Zap, Sparkles, ShieldCheck } from 'lucide-react';
+import { load } from '@cashfreepayments/cashfree-js';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 import { getFirestoreOrderById, cancelFirestoreOrder } from '../firebase/dbService';
 import axiosClient from '../api/axiosClient';
@@ -233,15 +234,21 @@ export const OrderTrackingPage = () => {
         totalAmount: order.totalAmount,
       };
       const response = await axiosClient.post('/payment/create-order', paymentPayload);
-      const paymentUrl = response?.data?.paymentUrl;
-      if (paymentUrl) {
-        window.location.href = paymentUrl;
-      } else {
-        alert('Unable to resume Cashfree payment. Please try again.');
+      const paymentSessionId = response?.data?.paymentSessionId || response?.data?.payment_session_id;
+      const mode = response?.data?.environment || response?.data?.mode || 'sandbox';
+
+      if (!paymentSessionId) {
+        throw new Error('Unable to resume Cashfree payment session.');
       }
+
+      const cashfree = await load({ mode: mode === 'production' ? 'production' : 'sandbox' });
+      await cashfree.checkout({
+        paymentSessionId: paymentSessionId,
+        redirectTarget: '_self',
+      });
     } catch (err) {
       console.error('Resume payment error:', err);
-      alert('Failed to resume payment. Please contact support.');
+      alert('Failed to resume payment. ' + (err.message || 'Please contact support.'));
     } finally {
       setIsResumingPayment(false);
     }

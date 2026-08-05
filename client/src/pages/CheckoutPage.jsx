@@ -2,6 +2,7 @@ import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CreditCard, ShieldCheck, CheckCircle2, Lock, ArrowRight, Zap, Building, Copy, Check, QrCode, MessageCircle, ExternalLink, Sparkles } from 'lucide-react';
 import QRCode from 'react-qr-code';
+import { load } from '@cashfreepayments/cashfree-js';
 import { CartContext } from '../context/CartContext';
 import { AuthContext } from '../context/AuthContext';
 import axiosClient from '../api/axiosClient';
@@ -92,18 +93,24 @@ export const CheckoutPage = () => {
       };
 
       const response = await axiosClient.post('/payment/create-order', paymentPayload);
-      const paymentUrl = response?.data?.paymentUrl;
-      const returnedOrderId = response?.data?.orderId || generatedOrderId;
+      const paymentSessionId = response?.data?.paymentSessionId || response?.data?.payment_session_id;
+      const mode = response?.data?.environment || response?.data?.mode || 'sandbox';
 
-      if (!paymentUrl) {
-        throw new Error('Unable to initiate Cashfree payment.');
+      if (!paymentSessionId) {
+        throw new Error('Server did not return a valid Cashfree paymentSessionId.');
       }
 
-      window.location.href = paymentUrl;
+      console.log('⚡ Launching Cashfree SDK with Session ID:', paymentSessionId);
+
+      const cashfree = await load({ mode: mode === 'production' ? 'production' : 'sandbox' });
+      await cashfree.checkout({
+        paymentSessionId: paymentSessionId,
+        redirectTarget: '_self',
+      });
     } catch (err) {
-      console.error('[Checkout] Cashfree create order failed:', err);
+      console.error('[Checkout] Cashfree official SDK checkout failed:', err);
       setLoading(false);
-      alert('Unable to start the payment process. Please try again.');
+      alert(err.message || 'Unable to start the payment process. Please try again.');
     }
   };
 
