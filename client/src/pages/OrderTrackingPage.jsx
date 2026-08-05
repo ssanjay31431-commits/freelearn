@@ -35,17 +35,25 @@ export const OrderTrackingPage = () => {
 
     const handleUpdate = (updatedOrder) => {
       console.log('⚡ Live Order Status Received on Customer Site:', updatedOrder);
-      if (updatedOrder && (updatedOrder.orderId === activeId || updatedOrder.orderId === orderId)) {
+      if (updatedOrder && (updatedOrder.orderId === activeId || updatedOrder.orderId === orderId || updatedOrder.cashfreeOrderId === activeId)) {
         setOrder((prev) => (prev ? { ...prev, ...updatedOrder, statusTimeline: updatedOrder.statusTimeline || updatedOrder.orderStatus } : updatedOrder));
       }
     };
 
     socket.on('orderUpdated', handleUpdate);
     socket.on('order:status_updated', handleUpdate);
+    socket.on('tracking_updated', handleUpdate);
+    socket.on('payment_success', handleUpdate);
+    socket.on('order_confirmed', handleUpdate);
+    socket.on('invoice_generated', handleUpdate);
 
     return () => {
       socket.off('orderUpdated', handleUpdate);
       socket.off('order:status_updated', handleUpdate);
+      socket.off('tracking_updated', handleUpdate);
+      socket.off('payment_success', handleUpdate);
+      socket.off('order_confirmed', handleUpdate);
+      socket.off('invoice_generated', handleUpdate);
       socket.disconnect();
     };
   }, [orderId, queryId, order?.orderId]);

@@ -91,16 +91,26 @@ export default function Orders() {
 
     socket.on('newOrder', handleNewOrder);
     socket.on('order:created', handleNewOrder);
+    socket.on('admin_new_order', handleNewOrder);
+    socket.on('payment_success', handleOrderUpdated);
+    socket.on('order_confirmed', handleOrderUpdated);
     socket.on('orderUpdated', handleOrderUpdated);
     socket.on('order:status_updated', handleOrderUpdated);
+    socket.on('invoice_generated', handleOrderUpdated);
+    socket.on('tracking_updated', handleOrderUpdated);
     socket.on('orderDeleted', handleOrderDeleted);
     socket.on('admin:data_cleared', handleDataCleared);
 
     return () => {
       socket.off('newOrder', handleNewOrder);
       socket.off('order:created', handleNewOrder);
+      socket.off('admin_new_order', handleNewOrder);
+      socket.off('payment_success', handleOrderUpdated);
+      socket.off('order_confirmed', handleOrderUpdated);
       socket.off('orderUpdated', handleOrderUpdated);
       socket.off('order:status_updated', handleOrderUpdated);
+      socket.off('invoice_generated', handleOrderUpdated);
+      socket.off('tracking_updated', handleOrderUpdated);
       socket.off('orderDeleted', handleOrderDeleted);
       socket.off('admin:data_cleared', handleDataCleared);
     };

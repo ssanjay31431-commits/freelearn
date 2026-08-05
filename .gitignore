@@ -14,8 +14,11 @@ build/
 !.env.example
 !**/.env.example
 
-# Logs and scratch
+# Logs, invoices and scratch
 *.log
 **/scratch/
+invoices/
+**/invoices/
+*-output.txt
 .DS_Store
 Thumbs.db

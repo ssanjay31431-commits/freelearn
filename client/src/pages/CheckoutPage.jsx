@@ -294,66 +294,44 @@ export const CheckoutPage = () => {
 
             </div>
 
-            {/* Step 3: OFFICIAL GPAY QR CODE & UPI PAYMENT DETAILS */}
+            {/* Step 3: CASHFREE SECURE PAYMENT GATEWAY TRUST CARD */}
             <div className="bg-white p-6 rounded-3xl border-2 border-indigo-500/40 shadow-xl space-y-5 animate-in fade-in">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                  <QrCode className="w-5 h-5 text-indigo-600" />
-                  Scan GPay QR Code to Pay (₹{amountToPayNow})
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  Instant Automated Cashfree Payment (₹{amountToPayNow})
                 </h3>
-                <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
-                  INSTANT UPI
+                <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase">
+                  256-Bit Encrypted
                 </span>
               </div>
 
-              {/* GPay QR Display Card */}
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center space-y-4">
-                <div className="inline-block p-3 bg-white rounded-2xl border border-slate-200 shadow-md">
-                    <div className="bg-white p-6 inline-flex items-center justify-center rounded-2xl">
-                      <QRCode
-                        value={upiQrValue}
-                        size={180}
-                        level="M"
-                        includeMargin={false}
-                      />
-                    </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-black text-slate-900">Account Holder: S Sanjay</div>
-                  <div className="text-xs text-slate-600 font-semibold">Scan with Google Pay, PhonePe, Paytm, BHIM, or any UPI App</div>
+                <div className="text-xs text-slate-600 font-semibold leading-relaxed">
+                  Clicking <strong>Pay ₹{amountToPayNow}</strong> will launch official Cashfree Payment Gateway. You can complete your transaction using any UPI app (GPay, PhonePe, Paytm, BHIM), Net Banking, or Cards.
                 </div>
 
-                {/* Copy UPI Details */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between">
-                    <div className="text-left">
-                      <div className="text-[10px] font-bold text-slate-500">UPI ID</div>
-                      <div className="text-xs font-extrabold text-indigo-700">{upiId}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(upiId, 'upi')}
-                      className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      {copiedField === 'upi' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedField === 'upi' ? 'Copied' : 'Copy'}</span>
-                    </button>
-                  </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <span className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-800 text-xs font-black shadow-xs">
+                    Google Pay
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-purple-700 text-xs font-black shadow-xs">
+                    PhonePe
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-cyan-600 text-xs font-black shadow-xs">
+                    Paytm
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-indigo-700 text-xs font-black shadow-xs">
+                    BHIM UPI
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-black shadow-xs">
+                    Cards & NetBanking
+                  </span>
+                </div>
 
-                  <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between">
-                    <div className="text-left">
-                      <div className="text-[10px] font-bold text-slate-500">GPay Phone Number</div>
-                      <div className="text-xs font-extrabold text-emerald-700">{upiPhone}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(upiPhone, 'phone')}
-                      className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      {copiedField === 'phone' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedField === 'phone' ? 'Copied' : 'Copy'}</span>
-                    </button>
-                  </div>
+                <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200 text-[11px] font-extrabold text-emerald-900 text-left flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>Your order will be verified automatically by Cashfree webhook & API. No manual confirmation required!</span>
                 </div>
               </div>
 

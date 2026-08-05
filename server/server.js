@@ -78,7 +78,7 @@ app.use('/api/', limiter);
 app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => {
-    if (req.originalUrl === '/api/payment/webhook' && req.method === 'POST') {
+    if (req.method === 'POST' && (req.originalUrl.includes('/webhook') || req.path.includes('/webhook'))) {
       req.rawBody = buf;
     }
   }

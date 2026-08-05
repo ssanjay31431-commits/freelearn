@@ -316,28 +316,97 @@ const createCashfreeOrder = async ({ orderId, totalAmount, customerName, custome
   }
 };
 
+const getCashfreeOrderRaw = async (orderId) => {
+  try {
+    const env = String(process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
+    const baseUrl = env === 'PRODUCTION' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+    const url = `${baseUrl}/orders/${encodeURIComponent(orderId)}`;
+    const headers = {
+      'x-client-id': String(process.env.CASHFREE_APP_ID || '').trim(),
+      'x-client-secret': String(process.env.CASHFREE_SECRET_KEY || '').trim(),
+      'x-api-version': getCashfreeApiVersion(),
+      'Content-Type': 'application/json',
+    };
+    const response = await axios.get(url, { headers, timeout: 30000, validateStatus: () => true });
+    if (response.status >= 200 && response.status < 300) {
+      return normalizeCashfreeOrderResponse(response.data);
+    }
+  } catch (err) {
+    console.error(`[Cashfree REST raw order fetch error]: ${err.message}`);
+  }
+  return null;
+};
+
+const getCashfreePaymentsRaw = async (orderId) => {
+  try {
+    const env = String(process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
+    const baseUrl = env === 'PRODUCTION' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+    const url = `${baseUrl}/orders/${encodeURIComponent(orderId)}/payments`;
+    const headers = {
+      'x-client-id': String(process.env.CASHFREE_APP_ID || '').trim(),
+      'x-client-secret': String(process.env.CASHFREE_SECRET_KEY || '').trim(),
+      'x-api-version': getCashfreeApiVersion(),
+      'Content-Type': 'application/json',
+    };
+    const response = await axios.get(url, { headers, timeout: 30000, validateStatus: () => true });
+    if (response.status >= 200 && response.status < 300) {
+      return Array.isArray(response.data) ? response.data : [];
+    }
+  } catch (err) {
+    console.error(`[Cashfree REST raw payments fetch error]: ${err.message}`);
+  }
+  return [];
+};
+
 const getPaymentStatus = async ({ orderId }) => {
   if (!orderId) {
     throw new Error('orderId is required to retrieve Cashfree payment status');
   }
 
-  const config = getCashfreeConfig();
-  const gateway = getCashfreeGateway();
+  let cfOrder = null;
+  let payments = [];
 
-  const orderResponse = await gateway.getOrder(config, orderId);
-  const paymentsResponse = await gateway.getPaymentsForOrder(config, orderId);
+  // Try SDK first
+  try {
+    const config = getCashfreeConfig();
+    const gateway = getCashfreeGateway();
+    const orderResponse = await gateway.getOrder(config, orderId);
+    const paymentsResponse = await gateway.getPaymentsForOrder(config, orderId);
 
-  const cfOrder = orderResponse?.cfOrder || {};
-  const payments = paymentsResponse?.cfPaymentsEntities || [];
-  const successPayment = payments.find((payment) => String(payment.paymentStatus).toUpperCase() === 'SUCCESS');
-  const isPaid = Boolean(successPayment || String(cfOrder.orderStatus || '').toUpperCase() === 'PAID');
+    cfOrder = orderResponse?.cfOrder || orderResponse?.data || (orderResponse && (orderResponse.order_id || orderResponse.orderId) ? normalizeCashfreeOrderResponse(orderResponse) : null);
+    const rawPayments = paymentsResponse?.cfPaymentsEntities || paymentsResponse?.data || paymentsResponse;
+    payments = Array.isArray(rawPayments) ? rawPayments : [];
+  } catch (sdkErr) {
+    console.warn(`[Cashfree SDK getOrder] SDK call failed for #${orderId}: ${sdkErr.message}. Trying direct REST API fallback...`);
+  }
+
+  // Fallback to direct REST API if SDK returns nothing or fails
+  if (!cfOrder || (!cfOrder.orderId && !cfOrder.order_id)) {
+    const rawOrder = await getCashfreeOrderRaw(orderId);
+    if (rawOrder) cfOrder = rawOrder;
+  }
+
+  if (!payments || payments.length === 0) {
+    const rawPayments = await getCashfreePaymentsRaw(orderId);
+    if (rawPayments && rawPayments.length > 0) payments = rawPayments;
+  }
+
+  cfOrder = cfOrder || {};
+  
+  const successPayment = payments.find((payment) => {
+    const status = String(payment.paymentStatus || payment.payment_status || '').toUpperCase();
+    return status === 'SUCCESS';
+  });
+
+  const cfOrderStatus = String(cfOrder.order_status || cfOrder.orderStatus || '').toUpperCase();
+  const isPaid = Boolean(successPayment || cfOrderStatus === 'PAID');
 
   return {
     order: cfOrder,
     payments,
     successPayment,
     isPaid,
-    status: cfOrder.orderStatus || (successPayment ? 'PAID' : 'PENDING'),
+    status: cfOrderStatus || (successPayment ? 'PAID' : 'PENDING'),
   };
 };
 
@@ -367,13 +436,41 @@ const createPaymentSession = async (params) => {
   };
 };
 
-const verifySignature = (rawBody, signature) => {
+const verifySignature = (rawBody, signature, timestamp = '') => {
   const secret = process.env.CASHFREE_SECRET_KEY;
   if (!secret) {
     throw new Error('Missing CASHFREE_SECRET_KEY environment variable for webhook verification');
   }
-  const expectedSignature = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  return expectedSignature === signature;
+
+  if (!signature) return false;
+
+  const bodyStr = typeof rawBody === 'string' ? rawBody : (Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : JSON.stringify(rawBody || {}));
+  const sigTrimmed = String(signature).trim();
+  const tsTrimmed = String(timestamp || '').trim();
+
+  const candidatesToSign = [];
+  if (tsTrimmed) {
+    candidatesToSign.push(tsTrimmed + bodyStr);
+  }
+  candidatesToSign.push(bodyStr);
+
+  for (const candidate of candidatesToSign) {
+    const hmacHex = crypto.createHmac('sha256', secret).update(candidate).digest('hex');
+    const hmacBase64 = crypto.createHmac('sha256', secret).update(candidate).digest('base64');
+
+    try {
+      if (
+        (hmacHex.length === sigTrimmed.length && crypto.timingSafeEqual(Buffer.from(hmacHex), Buffer.from(sigTrimmed))) ||
+        (hmacBase64.length === sigTrimmed.length && crypto.timingSafeEqual(Buffer.from(hmacBase64), Buffer.from(sigTrimmed)))
+      ) {
+        return true;
+      }
+    } catch (e) {
+      // Ignore buffer length mismatch exceptions
+    }
+  }
+
+  return false;
 };
 
 module.exports = {
@@ -384,6 +481,8 @@ module.exports = {
   createPaymentSession,
   verifyCashfreePayment,
   getPaymentStatus,
+  getCashfreeOrderRaw,
+  getCashfreePaymentsRaw,
   verifySignature,
   normalizePhoneNumber,
 };
