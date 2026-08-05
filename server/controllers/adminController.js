@@ -473,7 +473,7 @@ const getOrderById = async (req, res) => {
 
 const updateOrderStatus = async (req, res) => {
   const { id } = req.params;
-  const { statusTimeline, paymentStatus, amountPaid, notes } = req.body;
+  const { statusTimeline, orderStatus, paymentStatus, amountPaid, notes } = req.body;
 
   try {
     let order = null;
@@ -487,22 +487,58 @@ const updateOrderStatus = async (req, res) => {
     const targetOrder = order || mockOrder;
     if (!targetOrder) return res.status(404).json({ message: 'Order not found' });
 
-    if (statusTimeline) targetOrder.statusTimeline = statusTimeline;
+    const newStatus = statusTimeline || orderStatus;
+
+    if (newStatus) {
+      targetOrder.statusTimeline = newStatus;
+      targetOrder.orderStatus = newStatus;
+    }
     if (paymentStatus) targetOrder.paymentStatus = String(paymentStatus).toUpperCase();
     if (amountPaid !== undefined) targetOrder.amountPaid = amountPaid;
     if (notes) targetOrder.notes = notes;
 
     if (order) {
-      try { await order.save(); } catch (e) {}
+      try {
+        if (newStatus) {
+          order.statusTimeline = newStatus;
+          order.orderStatus = newStatus;
+        }
+        if (paymentStatus) order.paymentStatus = String(paymentStatus).toUpperCase();
+        if (amountPaid !== undefined) order.amountPaid = amountPaid;
+        if (notes) order.notes = notes;
+        await order.save();
+      } catch (e) {
+        console.error('Error saving updated order in DB:', e);
+      }
     }
 
-    // Emit Socket.IO event
+    if (mockOrder) {
+      if (newStatus) {
+        mockOrder.statusTimeline = newStatus;
+        mockOrder.orderStatus = newStatus;
+      }
+      if (paymentStatus) mockOrder.paymentStatus = String(paymentStatus).toUpperCase();
+      if (amountPaid !== undefined) mockOrder.amountPaid = amountPaid;
+      if (notes) mockOrder.notes = notes;
+    }
+
+    // Emit Socket.IO event to all clients and order-specific room
     const io = req.app.get('io');
     if (io) {
-      io.emit('order:status_updated', targetOrder);
+      const payload = order ? order.toObject() : targetOrder;
+      const roomName = `order_${targetOrder.orderId}`;
+      
+      io.emit('order:status_updated', payload);
+      io.emit('orderUpdated', payload);
+      io.emit('tracking_updated', payload);
+
+      io.to(roomName).emit('order:status_updated', payload);
+      io.to(roomName).emit('orderUpdated', payload);
+      io.to(roomName).emit('tracking_updated', payload);
+
       io.emit('notification:order', {
         title: `Order #${targetOrder.orderId} Updated`,
-        message: `Status changed to ${targetOrder.statusTimeline}`,
+        message: `Status changed to ${targetOrder.statusTimeline || targetOrder.orderStatus}`,
         orderId: targetOrder.orderId
       });
     }
@@ -512,7 +548,7 @@ const updateOrderStatus = async (req, res) => {
       phone: targetOrder.customerPhone,
       customerName: targetOrder.customerName,
       orderId: targetOrder.orderId,
-      statusTimeline: targetOrder.statusTimeline
+      statusTimeline: targetOrder.statusTimeline || targetOrder.orderStatus
     }).catch(() => {});
 
     // Log Audit
@@ -521,11 +557,12 @@ const updateOrderStatus = async (req, res) => {
       action: 'UPDATE_ORDER_STATUS',
       resource: 'Order',
       resourceId: targetOrder.orderId,
-      details: `Updated Order #${targetOrder.orderId} status to '${targetOrder.statusTimeline}'`
+      details: `Updated Order #${targetOrder.orderId} status to '${targetOrder.statusTimeline || targetOrder.orderStatus}'`
     });
 
-    res.json(targetOrder);
+    res.json(order || targetOrder);
   } catch (error) {
+    console.error('Error updating order status:', error);
     res.status(500).json({ message: 'Error updating order status' });
   }
 };

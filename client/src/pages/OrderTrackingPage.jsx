@@ -36,8 +36,9 @@ export const OrderTrackingPage = () => {
 
     const handleUpdate = (updatedOrder) => {
       console.log('⚡ Live Order Status Received on Customer Site:', updatedOrder);
+      const activeId = order?.orderId || orderId || queryId;
       if (updatedOrder && (updatedOrder.orderId === activeId || updatedOrder.orderId === orderId || updatedOrder.cashfreeOrderId === activeId)) {
-        setOrder((prev) => (prev ? { ...prev, ...updatedOrder, statusTimeline: updatedOrder.statusTimeline || updatedOrder.orderStatus } : updatedOrder));
+        setOrder((prev) => (prev ? { ...prev, ...updatedOrder } : updatedOrder));
       }
     };
 
@@ -273,9 +274,13 @@ export const OrderTrackingPage = () => {
 
   const getStageIndex = (stage) => {
     if (!stage) return 0;
-    if (stage === 'Pending' || stage === 'PAYMENT_PENDING') return 0;
-    const idx = timelineStages.indexOf(stage);
-    return idx === -1 ? 1 : idx;
+    const normalized = String(stage).trim();
+    if (normalized === 'Pending' || normalized === 'PAYMENT_PENDING' || normalized === 'Order Received') return 0;
+    if (normalized === 'Confirmed' || normalized === 'CONFIRMED') return 1;
+
+    const idx = timelineStages.findIndex((s) => s.toLowerCase() === normalized.toLowerCase());
+    if (idx !== -1) return idx;
+    return 1;
   };
 
   const formatLastUpdated = (ord) => {
@@ -559,7 +564,7 @@ export const OrderTrackingPage = () => {
               <div className="relative">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                   {timelineStages.map((stageName, idx) => {
-                    const currentIdx = getStageIndex(order.orderStatus || order.statusTimeline);
+                    const currentIdx = getStageIndex(order.statusTimeline || order.orderStatus);
                     const isPassed = idx <= currentIdx;
                     const isCurrent = idx === currentIdx;
 
