@@ -148,7 +148,22 @@ const createCashfreeOrderHandler = async (req, res) => {
       });
     }
 
+    const isBalancePayment = req.body.isBalancePayment || paymentType === 'remaining_balance';
+    const parentOrderId = req.body.parentOrderId || (clientOrderId && clientOrderId.includes('-BAL-') ? clientOrderId.split('-BAL-')[0] : null);
+
+    let parentOrder = null;
+    if (parentOrderId) {
+      parentOrder = await Order.findOne({ orderId: parentOrderId });
+    }
+
     const amounts = calculateOrderAmounts(items, paymentType, couponCode, Number(providedTotal));
+
+    if (isBalancePayment && parentOrder) {
+      amounts.amountPaid = Number(providedTotal) || parentOrder.amountDue;
+      amounts.totalAmount = parentOrder.totalAmount;
+      amounts.amountDue = 0;
+    }
+
     const orderId = clientOrderId && String(clientOrderId).trim()
       ? String(clientOrderId).trim()
       : 'VF-' + Math.floor(100000 + Math.random() * 900000);
@@ -156,6 +171,7 @@ const createCashfreeOrderHandler = async (req, res) => {
     // Save pending order to MongoDB
     const pendingOrderData = {
       orderId,
+      parentOrderId: parentOrder ? parentOrder.orderId : null,
       user: req.user ? (req.user.id || req.user._id) : null,
       customerName,
       customerEmail,
@@ -165,10 +181,10 @@ const createCashfreeOrderHandler = async (req, res) => {
       subtotal: amounts.subtotal,
       discount: amounts.discount,
       gst: amounts.gst,
-      totalAmount: amounts.totalAmount,
+      totalAmount: parentOrder ? parentOrder.totalAmount : amounts.totalAmount,
       paymentType: paymentType || 'full',
-      amountPaid: amounts.amountPaid,
-      amountDue: amounts.amountDue,
+      amountPaid: isBalancePayment && parentOrder ? parentOrder.totalAmount : amounts.amountPaid,
+      amountDue: isBalancePayment ? 0 : amounts.amountDue,
       paymentMethod: paymentMethod || 'Cashfree',
       paymentStatus: 'PENDING',
       orderStatus: 'PAYMENT_PENDING',
@@ -390,7 +406,30 @@ const reconcilePaymentStatus = async ({ orderId, cashfreeOrderId, webhookPayload
     await paymentIntent.save();
   }
 
-  saveOrderBackup(order);
+  // If this is a balance payment for a parent order:
+  if (order && order.parentOrderId) {
+    try {
+      const parent = await Order.findOne({ orderId: order.parentOrderId });
+      if (parent) {
+        parent.amountPaid = parent.totalAmount;
+        parent.amountDue = 0;
+        parent.paymentStatus = 'PAID';
+        parent.cashfreePaymentId = cfPaymentId;
+        parent.paidAt = paymentTimestamp;
+        await parent.save();
+        try {
+          const parentInvoice = await generateInvoicePDF(parent);
+          parent.invoicePath = parentInvoice.invoicePath;
+          parent.invoiceUrl = parentInvoice.invoiceUrl;
+          await parent.save();
+        } catch (e) {}
+        saveOrderBackup(parent);
+        broadcastOrderUpdates(req, parent);
+      }
+    } catch (parentErr) {
+      console.error('❌ Error updating parent order on balance payment:', parentErr);
+    }
+  }
 
   // 1. Generate Invoice PDF
   try {

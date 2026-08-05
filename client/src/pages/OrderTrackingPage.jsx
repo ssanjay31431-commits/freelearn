@@ -255,6 +255,50 @@ export const OrderTrackingPage = () => {
     }
   };
 
+  const [balanceLoading, setBalanceLoading] = useState(false);
+
+  const handlePayRemainingBalance = async () => {
+    if (!order || !order.amountDue || order.amountDue <= 0) return;
+
+    setBalanceLoading(true);
+    try {
+      const balanceOrderId = `${order.orderId}-BAL-${Math.floor(100 + Math.random() * 900)}`;
+
+      const paymentPayload = {
+        orderId: balanceOrderId,
+        parentOrderId: order.orderId,
+        isBalancePayment: true,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerPhone: order.customerPhone,
+        address: order.address || '',
+        items: order.items || [{ serviceId: 'balance_payment', title: `Remaining Balance for #${order.orderId}`, price: order.amountDue, quantity: 1 }],
+        paymentType: 'remaining_balance',
+        totalAmount: order.amountDue,
+      };
+
+      const response = await axiosClient.post('/payment/create-order', paymentPayload);
+      const paymentSessionId = response?.data?.paymentSessionId || response?.data?.payment_session_id;
+      const mode = response?.data?.environment || response?.data?.mode || 'sandbox';
+
+      if (!paymentSessionId) {
+        throw new Error('Server did not return a valid Cashfree paymentSessionId for balance payment.');
+      }
+
+      console.log('⚡ Launching Cashfree for Balance Payment:', paymentSessionId);
+
+      const cashfree = await load({ mode: mode === 'production' ? 'production' : 'sandbox' });
+      await cashfree.checkout({
+        paymentSessionId,
+        redirectTarget: '_self',
+      });
+    } catch (err) {
+      console.error('[Balance Payment] Cashfree SDK launch failed:', err);
+      setBalanceLoading(false);
+      alert(err.message || 'Unable to start final balance payment. Please try again.');
+    }
+  };
+
   const handleCancelSubmit = async (e) => {
     e.preventDefault();
     if (!order) return;
@@ -553,6 +597,41 @@ export const OrderTrackingPage = () => {
                 </div>
               </div>
             </div>
+
+            {/* Pay Remaining Balance Banner when order has an outstanding balance */}
+            {order && order.amountDue > 0 && (
+              <div className="bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border-2 border-amber-400/60 rounded-3xl p-6 shadow-xl space-y-4 animate-in fade-in">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-900 border border-amber-400/40 text-xs font-black uppercase mb-2">
+                      <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-600" />
+                      <span>Remaining Balance Due: ₹{order.amountDue}</span>
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900">
+                      Pay Final Balance (₹{order.amountDue})
+                    </h3>
+                    <p className="text-xs text-slate-600 font-semibold mt-1">
+                      Your current project status is <strong className="text-indigo-700">{order.orderStatus || order.statusTimeline}</strong>. Pay the remaining balance of ₹{order.amountDue} to receive your 100% cleared invoice.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handlePayRemainingBalance}
+                    disabled={balanceLoading}
+                    className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-indigo-600 to-purple-600 text-white text-xs font-black uppercase tracking-wider shadow-lg hover:opacity-95 transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                  >
+                    {balanceLoading ? (
+                      <span>Opening Gateway...</span>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                        <span>Pay Final ₹{order.amountDue} Now</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Timeline Bar */}
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-md space-y-6">
