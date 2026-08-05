@@ -8,6 +8,7 @@ const {
   getCashfreeConfig,
   getCashfreeGateway,
   createCashfreeOrder,
+  getPaymentStatus,
   verifySignature,
   normalizePhoneNumber,
 } = require('../utils/cashfreeHelper');
@@ -466,15 +467,16 @@ const verifyCashfreePayment = async (req, res) => {
     const order = await reconcilePaymentStatus({ orderId: targetOrderId, cashfreeOrderId, req });
     return res.json({
       success: true,
-      message: 'Payment verified and order confirmed.',
+      message: 'Payment verified and order confirmed by Cashfree API.',
       order,
     });
   } catch (error) {
-    console.error('❌ Cashfree verify error:', error.message || error);
-    return res.status(500).json({
+    console.warn('⚠️ Cashfree payment verification pending or failed:', error.message || error);
+    return res.status(202).json({
       success: false,
-      message: 'Cashfree payment verification failed.',
-      error: error.message || String(error),
+      message: error.message || 'Payment is still pending or not verified by Cashfree API.',
+      paymentStatus: 'PENDING',
+      orderStatus: 'PAYMENT_PENDING',
     });
   }
 };
