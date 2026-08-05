@@ -467,16 +467,26 @@ const createPaymentSession = async (params) => {
 };
 
 const verifySignature = (rawBody, signature, timestamp = '') => {
+  let actualRawBody = rawBody;
+  let actualSignature = signature;
+  let actualTimestamp = timestamp;
+
+  if (rawBody && typeof rawBody === 'object' && !Buffer.isBuffer(rawBody) && rawBody.rawBody !== undefined) {
+    actualRawBody = rawBody.rawBody;
+    actualSignature = rawBody.signature || signature;
+    actualTimestamp = rawBody.timestamp || timestamp;
+  }
+
   const secret = process.env.CASHFREE_SECRET_KEY;
   if (!secret) {
     throw new Error('Missing CASHFREE_SECRET_KEY environment variable for webhook verification');
   }
 
-  if (!signature) return false;
+  if (!actualSignature) return false;
 
-  const bodyStr = typeof rawBody === 'string' ? rawBody : (Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : JSON.stringify(rawBody || {}));
-  const sigTrimmed = String(signature).trim();
-  const tsTrimmed = String(timestamp || '').trim();
+  const bodyStr = typeof actualRawBody === 'string' ? actualRawBody : (Buffer.isBuffer(actualRawBody) ? actualRawBody.toString('utf8') : JSON.stringify(actualRawBody || {}));
+  const sigTrimmed = String(actualSignature).trim();
+  const tsTrimmed = String(actualTimestamp || '').trim();
 
   const candidatesToSign = [];
   if (tsTrimmed) {
