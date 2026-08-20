@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: vibeforge-server
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false
+      - key: ADMIN_URL
+        sync: false
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: FROM_EMAIL
+        value: vibeforgemrs@gmail.com
+      - key: ADMIN_EMAIL
+        value: vibeforgemrs@gmail.com
+      - key: NOTIFICATION_EMAIL
+        value: ssanjay31431@gmail.com
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_NAME
+        value: VibeForge Digital Agency

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "cashfree-pg-sdk-nodejs": "^2.0.2"
+  }
+}
